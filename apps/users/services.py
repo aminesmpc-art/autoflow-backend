@@ -17,7 +17,7 @@ def register_user(email: str, password: str) -> CustomUser:
     """Create user + profile, send verification email in background thread."""
     import threading
 
-    user = CustomUser.objects.create_user(email=email, password=password, is_active=True)
+    user = CustomUser.objects.create_user(email=email, password=password, is_active=False)
     Profile.objects.create(user=user)
     token = create_verification_token(user)
     # Send email in background thread so registration returns instantly

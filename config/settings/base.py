@@ -264,7 +264,7 @@ EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=10, cast=int)
 # ── App config ──
 VERIFY_EMAIL_BASE_URL = config(
     "VERIFY_EMAIL_BASE_URL",
-    default="http://localhost:3000/verify-email",
+    default="https://api.auto-flow.studio/api/auth/verify-email",
 )
 VERIFICATION_TOKEN_EXPIRY_HOURS = config(
     "VERIFICATION_TOKEN_EXPIRY_HOURS", default=24, cast=int

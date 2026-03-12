@@ -55,7 +55,7 @@ class RegisterView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response(
-            {"message": "Account created! You can log in now."},
+            {"message": "Account created! Check your email to verify and log in."},
             status=status.HTTP_201_CREATED,
         )
 
@@ -145,16 +145,31 @@ class VerifyEmailView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        from django.shortcuts import render
+
         token = request.query_params.get("token")
         if not token:
-            return Response(
-                {"message": "Token is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return render(request, "users/verify_result.html", {
+                "status_class": "error",
+                "icon": "⚠️",
+                "title": "Missing Token",
+                "message": "No verification token provided. Please use the link from your email.",
+            }, status=400)
+
         success, message = verify_email(token)
         if success:
-            return Response({"message": message})
-        return Response({"message": message}, status=status.HTTP_400_BAD_REQUEST)
+            return render(request, "users/verify_result.html", {
+                "status_class": "success",
+                "icon": "✅",
+                "title": "Email Verified!",
+                "message": "Your email has been verified. You can now log in from the AutoFlow extension.",
+            })
+        return render(request, "users/verify_result.html", {
+            "status_class": "error",
+            "icon": "❌",
+            "title": "Verification Failed",
+            "message": message,
+        }, status=400)
 
 
 class ResendVerificationView(APIView):
