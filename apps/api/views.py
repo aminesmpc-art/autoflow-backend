@@ -350,6 +350,30 @@ class DiagnosticView(APIView):
         except Exception as e:
             results["existing_tables"] = f"FAIL: {e}"
 
+        # Test 9: Test Email Sending
+        try:
+            from django.core.mail import send_mail
+            from django.conf import settings
+            
+            results["email_backend"] = settings.EMAIL_BACKEND
+            results["email_host"] = settings.EMAIL_HOST
+            results["email_port"] = settings.EMAIL_PORT
+            results["email_use_ssl"] = getattr(settings, "EMAIL_USE_SSL", False)
+            results["email_use_tls"] = settings.EMAIL_USE_TLS
+            
+            # Try to send a test email
+            sent = send_mail(
+                subject="Test from AutoFlow Diagnostic",
+                message="This is a test email to verify SMTP settings.",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=["admin@auto-flow.studio"],
+                fail_silently=False,
+            )
+            results["email_test"] = f"OK: Sent {sent} email(s)"
+        except Exception as e:
+            results["email_test"] = f"FAIL: {e}"
+            results["email_test_traceback"] = traceback.format_exc()
+
         return Response(results)
 
 
