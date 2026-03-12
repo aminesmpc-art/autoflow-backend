@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Your Email — AutoFlow</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #0f172a;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 520px;">
+
+          <!-- Logo & Brand -->
+          <tr>
+            <td align="center" style="padding-bottom: 32px;">
+              <div style="display: inline-block; background: linear-gradient(135deg, #06b6d4, #0891b2); width: 56px; height: 56px; border-radius: 14px; line-height: 56px; text-align: center;">
+                <span style="color: #ffffff; font-size: 28px; font-weight: 700;">⚡</span>
+              </div>
+              <div style="color: #f1f5f9; font-size: 24px; font-weight: 700; margin-top: 12px; letter-spacing: -0.5px;">AutoFlow</div>
+            </td>
+          </tr>
+
+          <!-- Main Card -->
+          <tr>
+            <td style="background-color: #1e293b; border-radius: 16px; border: 1px solid #334155; padding: 40px 36px;">
+
+              <!-- Heading -->
+              <h1 style="color: #f1f5f9; font-size: 22px; font-weight: 700; margin: 0 0 8px 0; text-align: center;">
+                Verify Your Email
+              </h1>
+              <p style="color: #94a3b8; font-size: 15px; line-height: 1.6; margin: 0 0 28px 0; text-align: center;">
+                Thanks for signing up! Click the button below to verify your email address and activate your account.
+              </p>
+
+              <!-- CTA Button -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td align="center">
+                    <a href="{{ verify_url }}"
+                       style="display: inline-block; background: linear-gradient(135deg, #06b6d4, #0891b2); color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 40px; border-radius: 10px; letter-spacing: 0.3px;">
+                      Verify Email Address
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Divider -->
+              <hr style="border: none; border-top: 1px solid #334155; margin: 28px 0;">
+
+              <!-- Fallback Link -->
+              <p style="color: #64748b; font-size: 13px; line-height: 1.6; margin: 0; text-align: center;">
+                If the button doesn't work, copy and paste this link into your browser:
+              </p>
+              <p style="color: #22d3ee; font-size: 13px; word-break: break-all; margin: 8px 0 0 0; text-align: center;">
+                {{ verify_url }}
+              </p>
+
+              <!-- Expiry Notice -->
+              <div style="background-color: #0f172a; border-radius: 10px; padding: 14px 18px; margin-top: 24px;">
+                <p style="color: #94a3b8; font-size: 13px; margin: 0; text-align: center;">
+                  ⏰ This link expires in <strong style="color: #f1f5f9;">{{ expiry_hours }} hours</strong>
+                </p>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top: 28px; text-align: center;">
+              <p style="color: #475569; font-size: 12px; line-height: 1.6; margin: 0;">
+                If you didn't create an AutoFlow account, you can safely ignore this email.
+              </p>
+              <p style="color: #334155; font-size: 11px; margin: 12px 0 0 0;">
+                © {{ year }} AutoFlow · Automate Your Workflow
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
