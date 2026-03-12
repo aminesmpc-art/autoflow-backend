@@ -271,3 +271,65 @@ class HealthView(APIView):
 
     def get(self, request):
         return Response({"status": "ok", "service": "autoflow-backend"})
+
+
+class DiagnosticView(APIView):
+    """Temporary endpoint to debug admin 500 error. Remove after fixing."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        import traceback
+        results = {}
+
+        # Test 1: DB connection
+        try:
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+            results["db_connection"] = "OK"
+        except Exception as e:
+            results["db_connection"] = f"FAIL: {e}"
+
+        # Test 2: Session table
+        try:
+            from django.contrib.sessions.models import Session
+            Session.objects.count()
+            results["session_table"] = "OK"
+        except Exception as e:
+            results["session_table"] = f"FAIL: {e}"
+
+        # Test 3: User exists
+        try:
+            user = CustomUser.objects.filter(is_superuser=True).first()
+            results["superuser"] = f"OK: {user.email}" if user else "FAIL: no superuser found"
+        except Exception as e:
+            results["superuser"] = f"FAIL: {e}"
+
+        # Test 4: Authenticate
+        try:
+            user = authenticate(username="admin@auto-flow.studio", password="AutoFlow2026!")
+            results["auth"] = f"OK: {user}" if user else "FAIL: returned None"
+        except Exception as e:
+            results["auth"] = f"FAIL: {traceback.format_exc()}"
+
+        # Test 5: CSRF settings
+        from django.conf import settings
+        results["csrf_trusted_origins"] = getattr(settings, "CSRF_TRUSTED_ORIGINS", "NOT SET")
+        results["secure_proxy_ssl_header"] = str(getattr(settings, "SECURE_PROXY_SSL_HEADER", "NOT SET"))
+        results["debug"] = settings.DEBUG
+        results["static_root"] = str(getattr(settings, "STATIC_ROOT", "NOT SET"))
+        results["staticfiles_storage"] = str(getattr(settings, "STATICFILES_STORAGE", "NOT SET"))
+
+        # Test 6: Static files manifest
+        try:
+            from django.contrib.staticfiles.storage import staticfiles_storage
+            if hasattr(staticfiles_storage, 'read_manifest'):
+                manifest = staticfiles_storage.read_manifest()
+                results["static_manifest"] = "OK" if manifest else "EMPTY"
+            else:
+                results["static_manifest"] = "N/A (no manifest storage)"
+        except Exception as e:
+            results["static_manifest"] = f"FAIL: {e}"
+
+        return Response(results)
+
