@@ -42,10 +42,18 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        register_user(
-            email=serializer.validated_data["email"],
-            password=serializer.validated_data["password"],
-        )
+        try:
+            register_user(
+                email=serializer.validated_data["email"],
+                password=serializer.validated_data["password"],
+            )
+        except Exception as e:
+            import traceback
+            logger.error("Registration failed: %s\n%s", str(e), traceback.format_exc())
+            return Response(
+                {"detail": f"Registration failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         return Response(
             {"message": "Account created. Please check your email to verify your account."},
             status=status.HTTP_201_CREATED,
