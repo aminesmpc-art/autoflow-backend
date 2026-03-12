@@ -55,7 +55,7 @@ class RegisterView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response(
-            {"message": "Account created. Please check your email to verify your account."},
+            {"message": "Account created! You can log in now."},
             status=status.HTTP_201_CREATED,
         )
 
