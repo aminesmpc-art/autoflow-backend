@@ -249,16 +249,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 # ── Email (Resend) ──
 RESEND_API_KEY = config("RESEND_API_KEY", default="")
-
-if RESEND_API_KEY:
-    EMAIL_BACKEND = "django_resend.EmailBackend"
-    INSTALLED_APPS += ["django_resend"]
-else:
-    # Fallback to console for local dev (prints emails to terminal)
-    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="AutoFlow <noreply@auto-flow.studio>")
-EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=10, cast=int)
 
 # ── App config ──
 VERIFY_EMAIL_BASE_URL = config(

@@ -83,43 +83,54 @@ def resend_verification(email: str) -> tuple[bool, str]:
 
 
 def send_verification_email(user: CustomUser, token: EmailVerificationToken):
-    """Send the verification email with a branded HTML template."""
+    """Send the verification email using Resend API."""
     try:
-        base_url = getattr(settings, "VERIFY_EMAIL_BASE_URL", "http://localhost:3000/verify-email")
+        import resend
+
+        api_key = getattr(settings, "RESEND_API_KEY", "")
+        if not api_key:
+            logger.warning("RESEND_API_KEY not set — skipping verification email for %s", user.email)
+            return
+
+        resend.api_key = api_key
+
+        base_url = getattr(settings, "VERIFY_EMAIL_BASE_URL", "https://api.auto-flow.studio/api/auth/verify-email")
         verify_url = f"{base_url}?token={token.token}"
         expiry_hours = getattr(settings, "VERIFICATION_TOKEN_EXPIRY_HOURS", 24)
 
-        subject = "Verify Your Email — AutoFlow"
-
         # Plain text fallback
-        text_message = (
+        text_content = (
             f"Hi,\n\n"
-            f"Welcome to AutoFlow! Please verify your email address by visiting:\n\n"
+            f"Welcome to AutoFlow! Please verify your email:\n\n"
             f"{verify_url}\n\n"
             f"This link expires in {expiry_hours} hours.\n\n"
-            f"If you didn't create an AutoFlow account, you can safely ignore this email.\n\n"
             f"— The AutoFlow Team"
         )
 
-        # Render HTML template (may fail if template is missing)
+        # HTML content
         try:
-            html_message = render_to_string("users/verify_email.html", {
+            html_content = render_to_string("users/verify_email.html", {
                 "verify_url": verify_url,
                 "expiry_hours": expiry_hours,
                 "year": datetime.now().year,
             })
         except Exception:
-            html_message = None
+            html_content = None
 
-        send_mail(
-            subject=subject,
-            message=text_message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            html_message=html_message,
-            fail_silently=False,
-        )
-        logger.info("Verification email sent to %s", user.email)
+        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "AutoFlow <noreply@auto-flow.studio>")
+
+        params = {
+            "from": from_email,
+            "to": [user.email],
+            "subject": "Verify Your Email — AutoFlow",
+            "text": text_content,
+        }
+        if html_content:
+            params["html"] = html_content
+
+        resend.Emails.send(params)
+        logger.info("Verification email sent to %s via Resend", user.email)
+
     except Exception as exc:
         logger.error("Failed to send verification email to %s: %s", user.email, exc)
 
