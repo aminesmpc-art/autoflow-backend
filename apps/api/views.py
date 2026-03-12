@@ -365,6 +365,7 @@ class RunMigrateView(APIView):
         stderr = io.StringIO()
         try:
             call_command("migrate", "--noinput", verbosity=2, stdout=stdout, stderr=stderr)
+            call_command("ensure_superuser", stdout=stdout, stderr=stderr)
             return Response({
                 "status": "OK",
                 "stdout": stdout.getvalue(),
