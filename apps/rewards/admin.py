@@ -1,11 +1,12 @@
 """Admin config for reward credits."""
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 
 from .models import RewardCreditLedger
 
 
 @admin.register(RewardCreditLedger)
-class RewardCreditLedgerAdmin(admin.ModelAdmin):
+class RewardCreditLedgerAdmin(ModelAdmin):
     list_display = ("user", "amount", "source", "status", "reference_id", "created_at")
     list_filter = ("source", "status")
     search_fields = ("user__email", "reference_id")

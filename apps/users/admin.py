@@ -1,12 +1,13 @@
 """Admin config for users — support-friendly interface."""
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from unfold.admin import ModelAdmin
 
 from .models import CustomUser, EmailVerificationToken
 
 
 @admin.register(CustomUser)
-class CustomUserAdmin(BaseUserAdmin):
+class CustomUserAdmin(BaseUserAdmin, ModelAdmin):
     list_display = ("email", "is_active", "is_staff", "created_at")
     list_filter = ("is_active", "is_staff", "is_superuser")
     search_fields = ("email",)
@@ -29,7 +30,7 @@ class CustomUserAdmin(BaseUserAdmin):
 
 
 @admin.register(EmailVerificationToken)
-class EmailVerificationTokenAdmin(admin.ModelAdmin):
+class EmailVerificationTokenAdmin(ModelAdmin):
     list_display = ("user", "token_short", "expires_at", "used_at", "is_valid_display", "created_at")
     list_filter = ("used_at",)
     search_fields = ("user__email", "token")

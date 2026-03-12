@@ -18,6 +18,8 @@ ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv(
 
 # ── Apps ──
 DJANGO_APPS = [
+    "unfold",  # Must be before django.contrib.admin
+    "unfold.contrib.filters",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -41,6 +43,97 @@ LOCAL_APPS = [
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
+
+# ── Unfold Admin Theme ──
+UNFOLD = {
+    "SITE_TITLE": "AutoFlow",
+    "SITE_HEADER": "AutoFlow Admin",
+    "SITE_SUBHEADER": "Chrome Extension Management",
+    "SITE_URL": "/api/health",
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": False,
+    "THEME": "dark",
+    "COLORS": {
+        "primary": {
+            "50": "#ecfeff",
+            "100": "#cffafe",
+            "200": "#a5f3fc",
+            "300": "#67e8f9",
+            "400": "#22d3ee",
+            "500": "#06b6d4",
+            "600": "#0891b2",
+            "700": "#0e7490",
+            "800": "#155e75",
+            "900": "#164e63",
+            "950": "#083344",
+        },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": "Users & Auth",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Users",
+                        "icon": "person",
+                        "link": "/admin/users/customuser/",
+                    },
+                    {
+                        "title": "Verification Tokens",
+                        "icon": "verified",
+                        "link": "/admin/users/emailverificationtoken/",
+                    },
+                    {
+                        "title": "Groups",
+                        "icon": "group",
+                        "link": "/admin/auth/group/",
+                    },
+                ],
+            },
+            {
+                "title": "Plans & Usage",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Profiles",
+                        "icon": "badge",
+                        "link": "/admin/plans/profile/",
+                    },
+                    {
+                        "title": "Daily Usage",
+                        "icon": "analytics",
+                        "link": "/admin/usage/dailyusage/",
+                    },
+                    {
+                        "title": "Usage Events",
+                        "icon": "event",
+                        "link": "/admin/usage/usageevent/",
+                    },
+                ],
+            },
+            {
+                "title": "Rewards & Webhooks",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Reward Credits",
+                        "icon": "stars",
+                        "link": "/admin/rewards/rewardcreditledger/",
+                    },
+                    {
+                        "title": "Webhook Events",
+                        "icon": "webhook",
+                        "link": "/admin/webhooks/webhookevent/",
+                    },
+                ],
+            },
+        ],
+    },
+}
+
 
 # ── Middleware ──
 MIDDLEWARE = [

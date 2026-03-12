@@ -1,11 +1,12 @@
 """Admin config for profiles and plans."""
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 
 from .models import Profile
 
 
 @admin.register(Profile)
-class ProfileAdmin(admin.ModelAdmin):
+class ProfileAdmin(ModelAdmin):
     list_display = ("user", "plan_type", "is_pro_active", "fair_use_flag", "last_seen_at", "created_at")
     list_filter = ("plan_type", "is_pro_active", "fair_use_flag")
     search_fields = ("user__email", "display_name")
