@@ -35,7 +35,12 @@ EMAIL_BACKEND = config(  # noqa: F405
     "EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
 )
 
-# ── ALLOWED_HOSTS (Railway sets RAILWAY_PUBLIC_DOMAIN) ──
+# ── ALLOWED_HOSTS ──
+ALLOWED_HOSTS += [  # noqa: F405
+    "api.auto-flow.studio",
+    "auto-flow.studio",
+    ".railway.app",
+]
 RAILWAY_DOMAIN = config("RAILWAY_PUBLIC_DOMAIN", default="")  # noqa: F405
 if RAILWAY_DOMAIN:
     ALLOWED_HOSTS.append(RAILWAY_DOMAIN)  # noqa: F405
