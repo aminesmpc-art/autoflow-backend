@@ -26,6 +26,9 @@ CSRF_TRUSTED_ORIGINS = [
     "https://api.auto-flow.studio",
 ]
 
+# Allow Chrome extension to call the API (extensions use chrome-extension:// origins)
+CORS_ALLOW_ALL_ORIGINS = True
+
 # ── Static files with WhiteNoise ──
 MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")  # noqa: F405
 WHITENOISE_USE_FINDERS = True
