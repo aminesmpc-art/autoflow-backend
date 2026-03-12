@@ -40,6 +40,18 @@ class RegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        # Rate limit: max 5 registrations per IP per hour
+        from django.core.cache import cache
+        ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() or request.META.get("REMOTE_ADDR", "unknown")
+        cache_key = f"register_rate:{ip}"
+        attempts = cache.get(cache_key, 0)
+        if attempts >= 5:
+            return Response(
+                {"detail": "Too many registration attempts. Try again later."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        cache.set(cache_key, attempts + 1, timeout=3600)  # 1 hour
+
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
