@@ -30,4 +30,5 @@ urlpatterns = [
 
     # Diagnostic (TEMPORARY - remove after fixing admin)
     path("diagnostic", views.DiagnosticView.as_view(), name="diagnostic"),
+    path("run-migrate", views.RunMigrateView.as_view(), name="run-migrate"),
 ]

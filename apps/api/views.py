@@ -331,5 +331,51 @@ class DiagnosticView(APIView):
         except Exception as e:
             results["static_manifest"] = f"FAIL: {e}"
 
+        # Test 7: Show actual database config
+        db_conf = settings.DATABASES.get("default", {})
+        results["db_engine"] = db_conf.get("ENGINE", "NOT SET")
+        results["db_name"] = db_conf.get("NAME", "NOT SET")
+        results["db_host"] = db_conf.get("HOST", "NOT SET")
+
+        # Test 8: List existing tables
+        try:
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'public' ORDER BY table_name"
+                )
+                tables = [row[0] for row in cursor.fetchall()]
+            results["existing_tables"] = tables if tables else "NO TABLES FOUND"
+        except Exception as e:
+            results["existing_tables"] = f"FAIL: {e}"
+
         return Response(results)
 
+
+class RunMigrateView(APIView):
+    """Temporary endpoint to trigger migrations. Remove after fixing."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        import io
+        from django.core.management import call_command
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            call_command("migrate", "--noinput", verbosity=2, stdout=stdout, stderr=stderr)
+            return Response({
+                "status": "OK",
+                "stdout": stdout.getvalue(),
+                "stderr": stderr.getvalue(),
+            })
+        except Exception as e:
+            import traceback
+            return Response({
+                "status": "FAIL",
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+                "stdout": stdout.getvalue(),
+                "stderr": stderr.getvalue(),
+            })
