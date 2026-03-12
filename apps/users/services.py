@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 def register_user(email: str, password: str) -> CustomUser:
-    """Create an inactive user, profile, and send verification email."""
-    user = CustomUser.objects.create_user(email=email, password=password, is_active=False)
+    """Create an active user and profile. Email verification skipped for now."""
+    user = CustomUser.objects.create_user(email=email, password=password, is_active=True)
     Profile.objects.create(user=user)
-    token = create_verification_token(user)
-    send_verification_email(user, token)
+    # Email verification disabled — SMTP blocks gunicorn worker and causes timeout.
+    # TODO: Re-enable with async email (Celery/Django-Q) later.
     return user
 
 
