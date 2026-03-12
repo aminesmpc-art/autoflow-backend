@@ -19,7 +19,11 @@ from apps.usage.models import DailyUsage, UsageEvent
 
 logger = logging.getLogger(__name__)
 
-FREE_DAILY_LIMIT = getattr(settings, "FREE_DAILY_PROMPT_LIMIT", 30)
+# ── Plan limits ──
+FREE_TEXT_DAILY_LIMIT = getattr(settings, "FREE_TEXT_DAILY_LIMIT", 100)
+FREE_FULL_DAILY_LIMIT = getattr(settings, "FREE_FULL_DAILY_LIMIT", 20)
+# Keep legacy constant for backward compat
+FREE_DAILY_LIMIT = FREE_TEXT_DAILY_LIMIT
 
 
 # ── Daily usage helpers ──
@@ -35,15 +39,17 @@ def get_or_create_daily_usage(user, target_date: date_type = None) -> DailyUsage
             "free_prompts_used": 0,
             "reward_prompts_used": 0,
             "total_prompts_used": 0,
+            "text_prompts_used": 0,
+            "full_prompts_used": 0,
         },
     )
     return usage
 
 
 def get_free_remaining(user, target_date: date_type = None) -> int:
-    """How many free prompts the user has left today."""
+    """How many free text prompts the user has left today."""
     usage = get_or_create_daily_usage(user, target_date)
-    return max(0, FREE_DAILY_LIMIT - usage.free_prompts_used)
+    return max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used)
 
 
 # ── Reward credit helpers ──
@@ -66,10 +72,7 @@ def grant_reward_credits(
     reference_id: str = None,
     metadata: dict = None,
 ) -> RewardCreditLedger:
-    """Grant reward credits to a user (idempotent if reference_id provided).
-
-    Returns the existing entry if reference_id already exists (idempotent).
-    """
+    """Grant reward credits to a user (idempotent if reference_id provided)."""
     if amount <= 0:
         raise ValueError("Grant amount must be positive")
 
@@ -90,7 +93,6 @@ def grant_reward_credits(
         metadata=metadata or {},
     )
 
-    # Log event
     UsageEvent.objects.create(
         user=user,
         event_type=UsageEvent.EventType.REWARD_GRANTED,
@@ -110,7 +112,9 @@ def get_entitlement_snapshot(user) -> dict:
     today = timezone.now().date()
     usage = get_or_create_daily_usage(user, today)
     reward_balance = get_reward_credit_balance(user)
-    free_remaining = max(0, FREE_DAILY_LIMIT - usage.free_prompts_used)
+
+    text_remaining = max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used)
+    full_remaining = max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used)
 
     # Reset time: midnight UTC of the next day
     tomorrow = today.toordinal() + 1
@@ -122,7 +126,7 @@ def get_entitlement_snapshot(user) -> dict:
     can_run = False
     if profile.is_pro:
         can_run = True
-    elif free_remaining > 0:
+    elif text_remaining > 0 or full_remaining > 0:
         can_run = True
     elif reward_balance > 0:
         can_run = True
@@ -130,9 +134,19 @@ def get_entitlement_snapshot(user) -> dict:
     return {
         "plan_type": profile.plan_type,
         "is_pro_active": profile.is_pro_active,
-        "free_daily_limit": FREE_DAILY_LIMIT,
+        # Text-to-video limits (no images)
+        "text_daily_limit": FREE_TEXT_DAILY_LIMIT,
+        "text_used_today": usage.text_prompts_used,
+        "text_remaining_today": text_remaining,
+        # Full-feature limits (with images/frames)
+        "full_daily_limit": FREE_FULL_DAILY_LIMIT,
+        "full_used_today": usage.full_prompts_used,
+        "full_remaining_today": full_remaining,
+        # Legacy fields
+        "free_daily_limit": FREE_TEXT_DAILY_LIMIT,
         "free_used_today": usage.free_prompts_used,
-        "free_remaining_today": free_remaining,
+        "free_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used),
+        # Rewards
         "reward_credit_balance": reward_balance,
         "can_run_prompt": can_run,
         "reset_at": reset_dt.isoformat(),
@@ -142,9 +156,10 @@ def get_entitlement_snapshot(user) -> dict:
 # ── Prompt consumption ──
 
 
-def can_consume_prompt(user) -> tuple[bool, str]:
+def can_consume_prompt(user, prompt_type: str = "text") -> tuple[bool, str]:
     """Check if user is allowed to consume a prompt.
 
+    prompt_type: "text" (text-to-video only) or "full" (with images/frames)
     Returns (allowed, reason).
     """
     profile = Profile.objects.get(user=user)
@@ -154,9 +169,13 @@ def can_consume_prompt(user) -> tuple[bool, str]:
 
     today = timezone.now().date()
     usage = get_or_create_daily_usage(user, today)
-    free_remaining = FREE_DAILY_LIMIT - usage.free_prompts_used
 
-    if free_remaining > 0:
+    if prompt_type == "full":
+        remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
+    else:
+        remaining = FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used
+
+    if remaining > 0:
         return True, "free"
 
     reward_balance = get_reward_credit_balance(user)
@@ -167,16 +186,15 @@ def can_consume_prompt(user) -> tuple[bool, str]:
 
 
 @transaction.atomic
-def consume_prompt(user, source: str = "extension") -> dict:
+def consume_prompt(user, source: str = "extension", prompt_type: str = "text") -> dict:
     """Atomically consume one prompt.
 
-    Uses SELECT FOR UPDATE to prevent race conditions.
+    prompt_type: "text" (text-to-video) or "full" (with images/frames)
     Returns consumption result dict.
     """
     profile = Profile.objects.select_for_update().get(user=user)
     today = timezone.now().date()
 
-    # Lock the daily usage row
     usage, created = DailyUsage.objects.select_for_update().get_or_create(
         user=user,
         date=today,
@@ -184,30 +202,37 @@ def consume_prompt(user, source: str = "extension") -> dict:
             "free_prompts_used": 0,
             "reward_prompts_used": 0,
             "total_prompts_used": 0,
+            "text_prompts_used": 0,
+            "full_prompts_used": 0,
         },
     )
 
     source_used = "pro"
 
     if profile.is_pro:
-        # Pro: always allow, record for analytics
         source_used = "pro"
     else:
-        free_remaining = FREE_DAILY_LIMIT - usage.free_prompts_used
-        if free_remaining > 0:
+        if prompt_type == "full":
+            remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
+        else:
+            remaining = FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used
+
+        if remaining > 0:
+            if prompt_type == "full":
+                usage.full_prompts_used += 1
+            else:
+                usage.text_prompts_used += 1
             usage.free_prompts_used += 1
             source_used = "free"
         else:
-            # Try reward credits
             reward_balance = get_reward_credit_balance(user)
             if reward_balance > 0:
-                # Deduct 1 reward credit
                 RewardCreditLedger.objects.create(
                     user=user,
                     amount=-1,
                     source="prompt_consumption",
                     status=CreditStatus.COMPLETED,
-                    metadata={"consumed_via": source},
+                    metadata={"consumed_via": source, "prompt_type": prompt_type},
                 )
                 usage.reward_prompts_used += 1
                 source_used = "reward"
@@ -215,30 +240,29 @@ def consume_prompt(user, source: str = "extension") -> dict:
                 return {
                     "allowed": False,
                     "source_used": None,
-                    "free_remaining_today": 0,
+                    "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used),
+                    "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used),
                     "reward_credit_balance": 0,
-                    "message": "Daily free limit reached and no reward credits available.",
+                    "message": f"Daily {prompt_type} prompt limit reached.",
                 }
 
     usage.total_prompts_used += 1
     usage.save()
 
-    # Log the consumption event
     UsageEvent.objects.create(
         user=user,
         event_type=UsageEvent.EventType.CONSUME_PROMPT,
         prompt_count=1,
-        metadata={"source": source, "source_used": source_used},
+        metadata={"source": source, "source_used": source_used, "prompt_type": prompt_type},
     )
-
-    free_remaining_now = max(0, FREE_DAILY_LIMIT - usage.free_prompts_used)
-    reward_balance_now = get_reward_credit_balance(user)
 
     return {
         "allowed": True,
         "source_used": source_used,
-        "free_remaining_today": free_remaining_now,
-        "reward_credit_balance": reward_balance_now,
+        "prompt_type": prompt_type,
+        "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used),
+        "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used),
+        "reward_credit_balance": get_reward_credit_balance(user),
         "message": "Prompt consumed successfully.",
     }
 
