@@ -28,7 +28,7 @@ CSRF_TRUSTED_ORIGINS = [
 
 # ── Static files with WhiteNoise ──
 MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")  # noqa: F405
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 
 # ── Email ──
 EMAIL_BACKEND = config(  # noqa: F405
