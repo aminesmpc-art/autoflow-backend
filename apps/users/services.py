@@ -88,11 +88,15 @@ def send_verification_email(user: CustomUser, token: EmailVerificationToken):
         f"— The AutoFlow Team"
     )
 
-    send_mail(
-        subject=subject,
-        message=message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        fail_silently=False,
-    )
-    logger.info("Verification email sent to %s", user.email)
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        logger.info("Verification email sent to %s", user.email)
+    except Exception as exc:
+        logger.error("Failed to send verification email to %s: %s", user.email, exc)
+
