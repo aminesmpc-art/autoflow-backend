@@ -77,30 +77,33 @@ def resend_verification(email: str) -> tuple[bool, str]:
 
 def send_verification_email(user: CustomUser, token: EmailVerificationToken):
     """Send the verification email with a branded HTML template."""
-    base_url = getattr(settings, "VERIFY_EMAIL_BASE_URL", "http://localhost:3000/verify-email")
-    verify_url = f"{base_url}?token={token.token}"
-    expiry_hours = getattr(settings, "VERIFICATION_TOKEN_EXPIRY_HOURS", 24)
-
-    subject = "Verify Your Email — AutoFlow"
-
-    # Plain text fallback
-    text_message = (
-        f"Hi,\n\n"
-        f"Welcome to AutoFlow! Please verify your email address by visiting:\n\n"
-        f"{verify_url}\n\n"
-        f"This link expires in {expiry_hours} hours.\n\n"
-        f"If you didn't create an AutoFlow account, you can safely ignore this email.\n\n"
-        f"— The AutoFlow Team"
-    )
-
-    # Render HTML template
-    html_message = render_to_string("users/verify_email.html", {
-        "verify_url": verify_url,
-        "expiry_hours": expiry_hours,
-        "year": datetime.now().year,
-    })
-
     try:
+        base_url = getattr(settings, "VERIFY_EMAIL_BASE_URL", "http://localhost:3000/verify-email")
+        verify_url = f"{base_url}?token={token.token}"
+        expiry_hours = getattr(settings, "VERIFICATION_TOKEN_EXPIRY_HOURS", 24)
+
+        subject = "Verify Your Email — AutoFlow"
+
+        # Plain text fallback
+        text_message = (
+            f"Hi,\n\n"
+            f"Welcome to AutoFlow! Please verify your email address by visiting:\n\n"
+            f"{verify_url}\n\n"
+            f"This link expires in {expiry_hours} hours.\n\n"
+            f"If you didn't create an AutoFlow account, you can safely ignore this email.\n\n"
+            f"— The AutoFlow Team"
+        )
+
+        # Render HTML template (may fail if template is missing)
+        try:
+            html_message = render_to_string("users/verify_email.html", {
+                "verify_url": verify_url,
+                "expiry_hours": expiry_hours,
+                "year": datetime.now().year,
+            })
+        except Exception:
+            html_message = None
+
         send_mail(
             subject=subject,
             message=text_message,
@@ -112,3 +115,4 @@ def send_verification_email(user: CustomUser, token: EmailVerificationToken):
         logger.info("Verification email sent to %s", user.email)
     except Exception as exc:
         logger.error("Failed to send verification email to %s: %s", user.email, exc)
+
