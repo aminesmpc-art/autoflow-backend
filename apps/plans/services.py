@@ -160,6 +160,9 @@ def can_consume_prompt(user, prompt_type: str = "text") -> tuple[bool, str]:
     """Check if user is allowed to consume a prompt.
 
     prompt_type: "text" (text-to-video only) or "full" (with images/frames)
+    
+    Every prompt counts toward text_prompts_used (100/day).
+    Full prompts ALSO count toward full_prompts_used (20/day).
     Returns (allowed, reason).
     """
     profile = Profile.objects.get(user=user)
@@ -170,19 +173,21 @@ def can_consume_prompt(user, prompt_type: str = "text") -> tuple[bool, str]:
     today = timezone.now().date()
     usage = get_or_create_daily_usage(user, today)
 
+    # Every prompt counts toward the text (total) limit
+    text_remaining = FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used
+    if text_remaining <= 0:
+        reward_balance = get_reward_credit_balance(user)
+        if reward_balance > 0:
+            return True, "reward"
+        return False, "limit_reached"
+
+    # Full prompts also count toward the stricter full-features limit
     if prompt_type == "full":
-        remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
-    else:
-        remaining = FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used
+        full_remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
+        if full_remaining <= 0:
+            return False, "full_limit_reached"
 
-    if remaining > 0:
-        return True, "free"
-
-    reward_balance = get_reward_credit_balance(user)
-    if reward_balance > 0:
-        return True, "reward"
-
-    return False, "limit_reached"
+    return True, "free"
 
 
 @transaction.atomic
@@ -212,16 +217,25 @@ def consume_prompt(user, source: str = "extension", prompt_type: str = "text") -
     if profile.is_pro:
         source_used = "pro"
     else:
-        if prompt_type == "full":
-            remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
-        else:
-            remaining = FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used
+        # Every prompt counts toward the text (total) limit
+        text_remaining = FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used
 
-        if remaining > 0:
+        if text_remaining > 0:
+            # Always increment text_prompts_used (total generations)
+            usage.text_prompts_used += 1
+            # Full prompts ALSO increment full_prompts_used
             if prompt_type == "full":
+                full_remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
+                if full_remaining <= 0:
+                    return {
+                        "allowed": False,
+                        "source_used": None,
+                        "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used),
+                        "full_remaining_today": 0,
+                        "reward_credit_balance": get_reward_credit_balance(user),
+                        "message": "Daily full-feature prompt limit reached.",
+                    }
                 usage.full_prompts_used += 1
-            else:
-                usage.text_prompts_used += 1
             usage.free_prompts_used += 1
             source_used = "free"
         else:

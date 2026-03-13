@@ -216,9 +216,20 @@ class ConsumePromptView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        result = consume_prompt(request.user, source="extension")
-        http_status = status.HTTP_200_OK if result["allowed"] else status.HTTP_403_FORBIDDEN
-        return Response(result, status=http_status)
+        prompt_type = request.data.get("prompt_type", "text")
+        prompt_count = int(request.data.get("prompt_count", 1))
+
+        results = []
+        for _ in range(prompt_count):
+            result = consume_prompt(request.user, source="extension", prompt_type=prompt_type)
+            results.append(result)
+            if not result["allowed"]:
+                break
+
+        # Return the last result (has current remaining counts)
+        final = results[-1]
+        http_status = status.HTTP_200_OK if final["allowed"] else status.HTTP_403_FORBIDDEN
+        return Response(final, status=http_status)
 
 
 class UsageEventView(APIView):
