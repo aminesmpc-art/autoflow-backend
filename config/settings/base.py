@@ -47,9 +47,9 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 # ── Unfold Admin Theme ──
 UNFOLD = {
-    "SITE_TITLE": "AutoFlow",
-    "SITE_HEADER": "AutoFlow Admin",
-    "SITE_SUBHEADER": "Chrome Extension Management",
+    "SITE_TITLE": "AutoFlow Admin",
+    "SITE_HEADER": "AutoFlow",
+    "SITE_SUBHEADER": "Manage Users, Plans & Usage",
     "SITE_URL": "/api/health",
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": False,
@@ -79,7 +79,7 @@ UNFOLD = {
                 "separator": True,
                 "items": [
                     {
-                        "title": "Users",
+                        "title": "All Users",
                         "icon": "person",
                         "link": "/admin/users/customuser/",
                         "badge": "apps.dashboard.badge_callback_users",
@@ -101,19 +101,19 @@ UNFOLD = {
                 "separator": True,
                 "items": [
                     {
-                        "title": "Profiles",
+                        "title": "Plans & Profiles",
                         "icon": "badge",
                         "link": "/admin/plans/profile/",
                         "badge": "apps.dashboard.badge_callback_pro",
                     },
                     {
-                        "title": "Daily Usage",
+                        "title": "Daily Stats",
                         "icon": "analytics",
                         "link": "/admin/usage/dailyusage/",
                         "badge": "apps.dashboard.badge_callback_today_usage",
                     },
                     {
-                        "title": "Usage Events",
+                        "title": "Activity Log",
                         "icon": "event",
                         "link": "/admin/usage/usageevent/",
                     },
@@ -124,12 +124,12 @@ UNFOLD = {
                 "separator": True,
                 "items": [
                     {
-                        "title": "Reward Credits",
+                        "title": "Bonus Credits",
                         "icon": "stars",
                         "link": "/admin/rewards/rewardcreditledger/",
                     },
                     {
-                        "title": "Webhook Events",
+                        "title": "Payment Webhooks",
                         "icon": "webhook",
                         "link": "/admin/webhooks/webhookevent/",
                         "badge": "apps.dashboard.badge_callback_pending_webhooks",

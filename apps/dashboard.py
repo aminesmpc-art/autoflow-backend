@@ -1,11 +1,11 @@
-"""Admin dashboard callbacks — provides real-time stats on the admin home page."""
+"""Admin dashboard — live stats shown at the top of the admin homepage."""
 from django.utils import timezone
 
 
 def dashboard_callback(request, context):
-    """Populate the Unfold admin dashboard with key business metrics."""
+    """Show key business metrics as easy-to-read cards."""
     from apps.users.models import CustomUser
-    from apps.plans.models import Profile, PlanType
+    from apps.plans.models import Profile
     from apps.usage.models import DailyUsage, UsageEvent
     from apps.webhooks.models import WebhookEvent
     from django.db.models import Sum
@@ -36,34 +36,34 @@ def dashboard_callback(request, context):
     context.update({
         "kpi": [
             {
-                "title": "Total Users",
+                "title": "👥 Total Users",
                 "metric": total_users,
-                "footer": f"{today_signups} signed up today",
+                "footer": f"📈 {today_signups} new today" if today_signups else "No signups today",
             },
             {
-                "title": "Active Users",
+                "title": "✅ Active Users",
                 "metric": active_users,
-                "footer": f"{total_users - active_users} inactive (unverified)",
+                "footer": f"⏸️ {total_users - active_users} haven't verified email yet",
             },
             {
-                "title": "Pro Subscribers",
+                "title": "⚡ Pro Subscribers",
                 "metric": pro_users,
-                "footer": f"{free_users} on free plan",
+                "footer": f"🆓 {free_users} still on free plan",
             },
             {
-                "title": "Prompts Today",
+                "title": "📝 Prompts Used Today",
                 "metric": today_usage["total"] or 0,
-                "footer": f"Text: {today_usage['text'] or 0} | Full: {today_usage['full'] or 0}",
+                "footer": f"📝 {today_usage['text'] or 0} text-only  •  🖼️ {today_usage['full'] or 0} with images",
             },
             {
-                "title": "Active Today",
+                "title": "🟢 Active Today",
                 "metric": active_today,
-                "footer": f"{total_events} events logged",
+                "footer": f"📊 {total_events} total events logged today",
             },
             {
-                "title": "Pending Webhooks",
+                "title": "📨 Pending Webhooks",
                 "metric": pending_webhooks,
-                "footer": "Unprocessed Whop events" if pending_webhooks else "All clear ✓",
+                "footer": "⚠️ Needs attention!" if pending_webhooks else "✅ All webhooks processed",
             },
         ],
     })
@@ -72,26 +72,26 @@ def dashboard_callback(request, context):
 
 
 def badge_callback_users(request):
-    """Show user count in sidebar badge."""
+    """Sidebar badge: total user count."""
     from apps.users.models import CustomUser
     return CustomUser.objects.count()
 
 
 def badge_callback_pro(request):
-    """Show Pro user count in sidebar badge."""
+    """Sidebar badge: active Pro subscriber count."""
     from apps.plans.models import Profile
     return Profile.objects.filter(is_pro_active=True).count()
 
 
 def badge_callback_today_usage(request):
-    """Show today's active users in sidebar badge."""
+    """Sidebar badge: users who were active today."""
     from apps.usage.models import DailyUsage
     from django.utils import timezone
     return DailyUsage.objects.filter(date=timezone.localdate()).count()
 
 
 def badge_callback_pending_webhooks(request):
-    """Show pending webhook count — only if > 0."""
+    """Sidebar badge: unprocessed webhooks (only shown if > 0)."""
     from apps.webhooks.models import WebhookEvent
     count = WebhookEvent.objects.filter(processed=False).count()
     return count if count > 0 else None
