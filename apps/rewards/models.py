@@ -77,6 +77,11 @@ class ReviewRewardClaim(models.Model):
         choices=ReviewClaimStatus.choices,
         default=ReviewClaimStatus.PENDING,
     )
+    reviewer_name = models.CharField(
+        max_length=100, 
+        blank=True, 
+        help_text="Chrome Web Store display name provided by user for verification"
+    )
     claimed_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(
         null=True, blank=True, help_text="When admin approved or rejected"

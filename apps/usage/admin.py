@@ -9,7 +9,7 @@ from .models import DailyUsage, UsageEvent
 @admin.register(DailyUsage)
 class DailyUsageAdmin(ModelAdmin):
     list_display = (
-        "user_display", "date_display", "text_count", "full_count",
+        "user_display", "plan_badge", "date_display", "text_count", "full_count",
         "download_count", "total_badge", "created_display",
     )
     list_filter = ("date",)
@@ -19,6 +19,9 @@ class DailyUsageAdmin(ModelAdmin):
     list_per_page = 50
     list_display_links = ("user_display",)
     actions = ["reset_usage", "export_csv"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("user__profile")
 
     @admin.action(description="📥 Export selected as CSV")
     def export_csv(self, request, queryset):
@@ -40,9 +43,27 @@ class DailyUsageAdmin(ModelAdmin):
     @admin.display(description="User", ordering="user__email")
     def user_display(self, obj):
         return format_html(
-            '<span style="color:#34d399;font-weight:500;">{}</span>',
+            '<span style="color:#60a5fa;font-weight:600;font-size:13px;">{}</span>',
             obj.user.email,
         )
+
+    @admin.display(description="Plan", ordering="user__profile__plan_type")
+    def plan_badge(self, obj):
+        try:
+            profile = obj.user.profile
+            if profile.is_pro_active:
+                return format_html(
+                    '<span style="background:linear-gradient(135deg, rgba(99,102,241,0.2), rgba(167,139,250,0.2));'
+                    'color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);padding:2px 8px;border-radius:12px;'
+                    'font-size:10px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">PRO</span>'
+                )
+            return format_html(
+                '<span style="background:rgba(100,116,139,0.15);color:#94a3b8;border:1px solid rgba(100,116,139,0.2);'
+                'padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;'
+                'letter-spacing:0.5px;text-transform:uppercase;">FREE</span>'
+            )
+        except Exception:
+            return format_html('<span style="color:#6b7280;">—</span>')
 
     @admin.display(description="Date", ordering="date")
     def date_display(self, obj):
@@ -55,12 +76,12 @@ class DailyUsageAdmin(ModelAdmin):
     def text_count(self, obj):
         count = obj.text_prompts_used
         if count == 0:
-            return format_html(
-                '<span style="color:#4b5563;font-size:13px;">0</span>'
-            )
+            return format_html('<span style="color:#475569;font-size:13px;">0</span>')
         return format_html(
-            '<span style="font-weight:600;font-size:13px;color:#d1d5db;'
-            'font-variant-numeric:tabular-nums;">{}</span>',
+            '<div style="display:inline-flex;align-items:center;gap:4px;">'
+            '<span style="color:#94a3b8;font-size:12px;">📝</span>'
+            '<span style="font-weight:700;font-size:14px;color:#f8fafc;'
+            'font-variant-numeric:tabular-nums;">{}</span></div>',
             count,
         )
 
@@ -68,12 +89,12 @@ class DailyUsageAdmin(ModelAdmin):
     def full_count(self, obj):
         count = obj.full_prompts_used
         if count == 0:
-            return format_html(
-                '<span style="color:#4b5563;font-size:13px;">0</span>'
-            )
+            return format_html('<span style="color:#475569;font-size:13px;">0</span>')
         return format_html(
-            '<span style="font-weight:600;font-size:13px;color:#d1d5db;'
-            'font-variant-numeric:tabular-nums;">{}</span>',
+            '<div style="display:inline-flex;align-items:center;gap:4px;">'
+            '<span style="color:#a78bfa;font-size:12px;">✨</span>'
+            '<span style="font-weight:700;font-size:14px;color:#f8fafc;'
+            'font-variant-numeric:tabular-nums;">{}</span></div>',
             count,
         )
 
@@ -81,34 +102,41 @@ class DailyUsageAdmin(ModelAdmin):
     def total_badge(self, obj):
         total = obj.total_prompts_used
         if total >= 100:
-            bg, label = "linear-gradient(135deg,#991b1b,#dc2626)", "Heavy"
+            bg, label = "linear-gradient(135deg, #7f1d1d, #b91c1c)", "Heavy"
+            border = "rgba(239, 68, 68, 0.4)"
         elif total >= 50:
-            bg, label = "linear-gradient(135deg,#92400e,#f59e0b)", "Medium"
+            bg, label = "linear-gradient(135deg, #78350f, #d97706)", "Medium"
+            border = "rgba(245, 158, 11, 0.4)"
         elif total >= 10:
-            bg, label = "linear-gradient(135deg,#065f46,#10b981)", "Active"
+            bg, label = "linear-gradient(135deg, #064e3b, #059669)", "Active"
+            border = "rgba(16, 185, 129, 0.4)"
         elif total > 0:
-            bg, label = "linear-gradient(135deg,#1e3a5f,#3b82f6)", "Light"
+            bg, label = "linear-gradient(135deg, #1e3a8a, #2563eb)", "Light"
+            border = "rgba(59, 130, 246, 0.4)"
         else:
-            return format_html(
-                '<span style="color:#4b5563;font-size:12px;">0</span>'
-            )
+            return format_html('<span style="color:#475569;font-size:13px;">0</span>')
+            
         return format_html(
-            '<span style="background:{};color:#fff;padding:4px 10px;border-radius:6px;'
-            'font-size:11px;font-weight:600;letter-spacing:0.02em;">'
-            '{} — {}</span>',
-            bg, total, label,
+            '<div style="display:inline-flex;align-items:center;background:{};'
+            'border:1px solid {};padding:2px 8px;border-radius:8px;'
+            'box-shadow:0 2px 4px rgba(0,0,0,0.2);">'
+            '<span style="font-weight:800;font-size:12px;color:#fff;margin-right:6px;">{}</span>'
+            '<span style="font-size:10px;font-weight:600;color:rgba(255,255,255,0.8);'
+            'text-transform:uppercase;letter-spacing:0.5px;">{}</span>'
+            '</div>',
+            bg, border, total, label,
         )
 
     @admin.display(description="Downloads")
     def download_count(self, obj):
         count = obj.downloads_used
         if count == 0:
-            return format_html(
-                '<span style="color:#4b5563;font-size:13px;">0</span>'
-            )
+            return format_html('<span style="color:#475569;font-size:13px;">0</span>')
         return format_html(
-            '<span style="font-weight:600;font-size:13px;color:#a78bfa;'
-            'font-variant-numeric:tabular-nums;">⬇ {}</span>',
+            '<div style="display:inline-flex;align-items:center;gap:4px;">'
+            '<span style="color:#38bdf8;font-size:12px;">⬇</span>'
+            '<span style="font-weight:700;font-size:14px;color:#bae6fd;'
+            'font-variant-numeric:tabular-nums;">{}</span></div>',
             count,
         )
 

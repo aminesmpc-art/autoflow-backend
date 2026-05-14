@@ -331,11 +331,24 @@ class ClaimReviewRewardView(APIView):
 
     def post(self, request):
         from apps.rewards.models import ReviewRewardClaim
+        from .serializers import ClaimReviewRewardSerializer
 
-        # Check if already claimed
-        claim, created = ReviewRewardClaim.objects.get_or_create(
-            user=request.user,
-        )
+        serializer = ClaimReviewRewardSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reviewer_name = serializer.validated_data["reviewer_name"]
+
+        claim = ReviewRewardClaim.objects.filter(user=request.user).first()
+        
+        if not claim:
+            claim = ReviewRewardClaim.objects.create(
+                user=request.user,
+                reviewer_name=reviewer_name
+            )
+        elif claim.status == "pending":
+            # Allow updating the name if it's still pending
+            claim.reviewer_name = reviewer_name
+            claim.save(update_fields=["reviewer_name"])
+
         return Response({
             "status": claim.status,
             "message": "Under review" if claim.status == "pending" else claim.status

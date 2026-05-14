@@ -93,11 +93,11 @@ class RewardCreditLedgerAdmin(ModelAdmin):
 @admin.register(ReviewRewardClaim)
 class ReviewRewardClaimAdmin(ModelAdmin):
     list_display = (
-        "user_display", "status_badge", "claimed_display", 
+        "user_display", "reviewer_name_display", "status_badge", "claimed_display", 
         "reviewed_display", "expires_display"
     )
     list_filter = ("status",)
-    search_fields = ("user__email",)
+    search_fields = ("user__email", "reviewer_name")
     readonly_fields = ("claimed_at", "reviewed_at", "pro_granted_until")
     date_hierarchy = "claimed_at"
     list_per_page = 50
@@ -136,6 +136,15 @@ class ReviewRewardClaimAdmin(ModelAdmin):
             '<span style="color:#34d399;font-weight:500;">{}</span>',
             obj.user.email,
         )
+
+    @admin.display(description="Chrome Name", ordering="reviewer_name")
+    def reviewer_name_display(self, obj):
+        if obj.reviewer_name:
+            return format_html(
+                '<span style="color:#60a5fa;font-weight:600;">{}</span>',
+                obj.reviewer_name,
+            )
+        return format_html('<span style="color:#6b7280;font-style:italic;">—</span>')
 
     @admin.display(description="Status")
     def status_badge(self, obj):

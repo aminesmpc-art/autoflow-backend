@@ -65,6 +65,9 @@ class GrantRewardSerializer(serializers.Serializer):
     reference_id = serializers.CharField(max_length=128, required=False, allow_blank=True)
     metadata = serializers.DictField(required=False, default=dict)
 
+class ClaimReviewRewardSerializer(serializers.Serializer):
+    reviewer_name = serializers.CharField(max_length=100)
+
 
 # ── Extractions ──
 
