@@ -139,8 +139,9 @@ def dashboard_callback(request, context):
         })
 
     # ── Revenue Estimate ──
+    whop_paying_users = Profile.objects.filter(is_pro_active=True, whop_membership_id__isnull=False).count()
     pro_price_monthly = 14.99  # Whop subscription price
-    mrr = round(pro_users * pro_price_monthly, 2)
+    mrr = round(whop_paying_users * pro_price_monthly, 2)
     arr = round(mrr * 12, 2)
 
     # ── Event Type Distribution ──
