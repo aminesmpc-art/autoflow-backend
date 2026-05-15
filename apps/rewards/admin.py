@@ -112,18 +112,18 @@ class ReviewRewardClaimAdmin(ModelAdmin):
         if change and "status" in form.changed_data:
             if obj.status == "approved" and not obj.pro_granted_until:
                 now = timezone.now()
-                thirty_days = now + timedelta(days=30)
+                seven_days = now + timedelta(days=7)
                 
                 obj.reviewed_at = now
-                obj.pro_granted_until = thirty_days
+                obj.pro_granted_until = seven_days
                 
                 profile = obj.user.profile
                 profile.plan_type = PlanType.PRO
                 profile.is_pro_active = True
-                profile.pro_expires_at = thirty_days
+                profile.pro_expires_at = seven_days
                 profile.save()
                 
-                self.message_user(request, f"Pro granted automatically! {obj.user.email} given 30 days.")
+                self.message_user(request, f"Pro granted automatically! {obj.user.email} given 7 days.")
             
             elif obj.status == "rejected":
                 obj.reviewed_at = timezone.now()
@@ -199,20 +199,20 @@ class ReviewRewardClaimAdmin(ModelAdmin):
         claim = self.get_object(request, object_id)
         if claim and claim.status == "pending":
             now = timezone.now()
-            thirty_days = now + timedelta(days=30)
+            seven_days = now + timedelta(days=7)
             
             claim.status = "approved"
             claim.reviewed_at = now
-            claim.pro_granted_until = thirty_days
+            claim.pro_granted_until = seven_days
             claim.save()
             
             profile = claim.user.profile
             profile.plan_type = PlanType.PRO
             profile.is_pro_active = True
-            profile.pro_expires_at = thirty_days
+            profile.pro_expires_at = seven_days
             profile.save()
             
-            self.message_user(request, f"Claim approved! {claim.user.email} granted 30 days of Pro.")
+            self.message_user(request, f"Claim approved! {claim.user.email} granted 7 days of Pro.")
         
         return redirect(request.META.get('HTTP_REFERER', reverse('admin:rewards_reviewrewardclaim_changelist')))
 
@@ -233,33 +233,33 @@ class ReviewRewardClaimAdmin(ModelAdmin):
         return redirect(request.META.get('HTTP_REFERER', reverse('admin:rewards_reviewrewardclaim_changelist')))
 
     # ── Bulk Actions ──
-    @admin.action(description="✅ Approve selected claims (Grants 30 Days Pro)")
+    @admin.action(description="✅ Approve selected claims (Grants 7 Days Pro)")
     def approve_claims(self, request, queryset):
         from django.utils import timezone
         from datetime import timedelta
         from apps.plans.models import PlanType
 
         now = timezone.now()
-        thirty_days = now + timedelta(days=30)
+        seven_days = now + timedelta(days=7)
         
         approved_count = 0
         for claim in queryset.filter(status="pending"):
             # Update claim
             claim.status = "approved"
             claim.reviewed_at = now
-            claim.pro_granted_until = thirty_days
+            claim.pro_granted_until = seven_days
             claim.save()
             
             # Update user profile to Pro with expiry
             profile = claim.user.profile
             profile.plan_type = PlanType.PRO
             profile.is_pro_active = True
-            profile.pro_expires_at = thirty_days
+            profile.pro_expires_at = seven_days
             profile.save()
             
             approved_count += 1
             
-        self.message_user(request, f"{approved_count} claim(s) approved. Users granted 30 days of Pro.")
+        self.message_user(request, f"{approved_count} claim(s) approved. Users granted 7 days of Pro.")
 
     @admin.action(description="❌ Reject selected claims")
     def reject_claims(self, request, queryset):
