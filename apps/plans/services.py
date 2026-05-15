@@ -51,7 +51,7 @@ def get_or_create_daily_usage(user, target_date: date_type = None) -> DailyUsage
 def get_free_remaining(user, target_date: date_type = None) -> int:
     """How many free text prompts the user has left today."""
     usage = get_or_create_daily_usage(user, target_date)
-    return max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used)
+    return max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used)
 
 
 # ── Reward credit helpers ──
@@ -115,7 +115,7 @@ def get_entitlement_snapshot(user) -> dict:
     usage = get_or_create_daily_usage(user, today)
     reward_balance = get_reward_credit_balance(user)
 
-    text_remaining = max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used)
+    text_remaining = max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used)
     full_remaining = max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used)
 
     # Reset time: midnight UTC of the next day
@@ -179,9 +179,9 @@ def can_consume_prompt(user, prompt_type: str = "text") -> tuple[bool, str]:
     today = timezone.now().date()
     usage = get_or_create_daily_usage(user, today)
 
-    # Every prompt counts toward the text (total) limit
-    text_remaining = FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used
-    if text_remaining <= 0:
+    # Every prompt counts toward the free (total) limit
+    free_remaining = FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used
+    if free_remaining <= 0:
         reward_balance = get_reward_credit_balance(user)
         if reward_balance > 0:
             return True, "reward"
@@ -223,25 +223,21 @@ def consume_prompt(user, source: str = "extension", prompt_type: str = "text") -
     if profile.is_pro:
         source_used = "pro"
     else:
-        # Every prompt counts toward the text (total) limit
-        text_remaining = FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used
+        # Every prompt counts toward the free limit
+        free_remaining = FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used
 
-        if text_remaining > 0:
-            # Always increment text_prompts_used (total generations)
-            usage.text_prompts_used += 1
-            # Full prompts ALSO increment full_prompts_used
+        if free_remaining > 0:
             if prompt_type == "full":
                 full_remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
                 if full_remaining <= 0:
                     return {
                         "allowed": False,
                         "source_used": None,
-                        "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used),
+                        "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used),
                         "full_remaining_today": 0,
                         "reward_credit_balance": get_reward_credit_balance(user),
                         "message": "Daily full-feature prompt limit reached.",
                     }
-                usage.full_prompts_used += 1
             usage.free_prompts_used += 1
             source_used = "free"
         else:
@@ -260,11 +256,16 @@ def consume_prompt(user, source: str = "extension", prompt_type: str = "text") -
                 return {
                     "allowed": False,
                     "source_used": None,
-                    "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used),
+                    "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used),
                     "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used),
                     "reward_credit_balance": 0,
                     "message": f"Daily {prompt_type} prompt limit reached.",
                 }
+
+    if prompt_type == "full":
+        usage.full_prompts_used += 1
+    else:
+        usage.text_prompts_used += 1
 
     usage.total_prompts_used += 1
     usage.save()
@@ -280,8 +281,8 @@ def consume_prompt(user, source: str = "extension", prompt_type: str = "text") -
         "allowed": True,
         "source_used": source_used,
         "prompt_type": prompt_type,
-        "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.text_prompts_used),
-        "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used),
+        "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used) if not profile.is_pro else 999,
+        "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used) if not profile.is_pro else 999,
         "reward_credit_balance": get_reward_credit_balance(user),
         "message": "Prompt consumed successfully.",
     }
