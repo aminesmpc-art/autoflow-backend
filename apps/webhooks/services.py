@@ -57,7 +57,27 @@ def process_whop_webhook(event: WebhookEvent):
             event.save(update_fields=["processed", "processed_at"])
             return
 
-        if event_type in ("membership.went_valid", "membership_went_valid", "membership_activated"):
+        # ── Activation events ──
+        activation_events = (
+            "membership.went_valid",
+            "membership_went_valid",
+            "membership.activated",
+            "membership_activated",
+            "membership.valid",
+        )
+        # ── Deactivation events ──
+        deactivation_events = (
+            "membership.went_invalid",
+            "membership_went_invalid",
+            "membership.cancelled",
+            "membership_cancelled",
+            "membership.deactivated",
+            "membership_deactivated",
+            "membership.expired",
+            "membership_expired",
+        )
+
+        if event_type in activation_events:
             sync_profile_plan(
                 user,
                 plan_type="pro",
@@ -67,7 +87,7 @@ def process_whop_webhook(event: WebhookEvent):
             )
             logger.info("Pro activated for %s via Whop (membership: %s)", user_email, membership_id)
 
-        elif event_type in ("membership.went_invalid", "membership_went_invalid", "membership.cancelled", "membership_cancelled", "membership_deactivated"):
+        elif event_type in deactivation_events:
             sync_profile_plan(
                 user,
                 plan_type="free",
