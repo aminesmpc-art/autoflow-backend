@@ -9,7 +9,7 @@ from datetime import date as date_type
 from datetime import datetime, time
 
 from django.conf import settings
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -33,19 +33,23 @@ FREE_DAILY_LIMIT = FREE_TEXT_DAILY_LIMIT
 def get_or_create_daily_usage(user, target_date: date_type = None) -> DailyUsage:
     """Get or create the DailyUsage row for user+date."""
     target_date = target_date or timezone.now().date()
-    usage, _ = DailyUsage.objects.get_or_create(
-        user=user,
-        date=target_date,
-        defaults={
-            "free_prompts_used": 0,
-            "reward_prompts_used": 0,
-            "total_prompts_used": 0,
-            "text_prompts_used": 0,
-            "full_prompts_used": 0,
-            "downloads_used": 0,
-        },
-    )
-    return usage
+    try:
+        usage, _ = DailyUsage.objects.get_or_create(
+            user=user,
+            date=target_date,
+            defaults={
+                "free_prompts_used": 0,
+                "reward_prompts_used": 0,
+                "total_prompts_used": 0,
+                "text_prompts_used": 0,
+                "full_prompts_used": 0,
+                "extend_prompts_used": 0,
+                "downloads_used": 0,
+            },
+        )
+        return usage
+    except IntegrityError:
+        return DailyUsage.objects.get(user=user, date=target_date)
 
 
 def get_free_remaining(user, target_date: date_type = None) -> int:
@@ -199,7 +203,7 @@ def can_consume_prompt(user, prompt_type: str = "text") -> tuple[bool, str]:
 def consume_prompt(user, source: str = "extension", prompt_type: str = "text") -> dict:
     """Atomically consume one prompt.
 
-    prompt_type: "text" (text-to-video) or "full" (with images/frames)
+    prompt_type: "text" (text-to-video), "full" (with images/frames), or "extend"
     Returns consumption result dict.
     """
     today = timezone.now().date()
@@ -258,6 +262,8 @@ def consume_prompt(user, source: str = "extension", prompt_type: str = "text") -
 
         if prompt_type == "full":
             usage.full_prompts_used += 1
+        elif prompt_type == "extend":
+            usage.extend_prompts_used += 1
         else:
             usage.text_prompts_used += 1
 

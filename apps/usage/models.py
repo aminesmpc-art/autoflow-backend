@@ -20,6 +20,7 @@ class DailyUsage(models.Model):
     total_prompts_used = models.PositiveIntegerField(default=0)
     text_prompts_used = models.PositiveIntegerField(default=0, help_text="Text-to-video prompts (no images)")
     full_prompts_used = models.PositiveIntegerField(default=0, help_text="Full-feature prompts (with images/frames)")
+    extend_prompts_used = models.PositiveIntegerField(default=0, help_text="Extended video prompts")
     downloads_used = models.PositiveIntegerField(default=0, help_text="Media downloads today")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
