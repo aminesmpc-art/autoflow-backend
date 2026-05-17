@@ -196,96 +196,90 @@ def can_consume_prompt(user, prompt_type: str = "text") -> tuple[bool, str]:
     return True, "free"
 
 
-@transaction.atomic
 def consume_prompt(user, source: str = "extension", prompt_type: str = "text") -> dict:
     """Atomically consume one prompt.
 
     prompt_type: "text" (text-to-video) or "full" (with images/frames)
     Returns consumption result dict.
     """
-    profile = Profile.objects.select_for_update().get(user=user)
     today = timezone.now().date()
+    
+    # 1. Ensure the DailyUsage record exists safely outside the transaction lock
+    get_or_create_daily_usage(user, today)
 
-    usage, created = DailyUsage.objects.select_for_update().get_or_create(
-        user=user,
-        date=today,
-        defaults={
-            "free_prompts_used": 0,
-            "reward_prompts_used": 0,
-            "total_prompts_used": 0,
-            "text_prompts_used": 0,
-            "full_prompts_used": 0,
-        },
-    )
+    # 2. Open transaction and lock rows
+    with transaction.atomic():
+        profile = Profile.objects.select_for_update().get(user=user)
+        usage = DailyUsage.objects.select_for_update().get(user=user, date=today)
 
-    source_used = "pro"
-
-    if profile.is_pro:
         source_used = "pro"
-    else:
-        # Every prompt counts toward the free limit
-        free_remaining = FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used
 
-        if free_remaining > 0:
-            if prompt_type == "full":
-                full_remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
-                if full_remaining <= 0:
+        if profile.is_pro:
+            source_used = "pro"
+        else:
+            # Every prompt counts toward the free limit
+            free_remaining = FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used
+
+            if free_remaining > 0:
+                if prompt_type == "full":
+                    full_remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
+                    if full_remaining <= 0:
+                        return {
+                            "allowed": False,
+                            "source_used": None,
+                            "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used),
+                            "full_remaining_today": 0,
+                            "reward_credit_balance": get_reward_credit_balance(user),
+                            "message": "Daily full-feature prompt limit reached.",
+                        }
+                usage.free_prompts_used += 1
+                source_used = "free"
+            else:
+                reward_balance = get_reward_credit_balance(user)
+                if reward_balance > 0:
+                    RewardCreditLedger.objects.create(
+                        user=user,
+                        amount=-1,
+                        source="prompt_consumption",
+                        status=CreditStatus.COMPLETED,
+                        metadata={"consumed_via": source, "prompt_type": prompt_type},
+                    )
+                    usage.reward_prompts_used += 1
+                    source_used = "reward"
+                else:
                     return {
                         "allowed": False,
                         "source_used": None,
                         "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used),
-                        "full_remaining_today": 0,
-                        "reward_credit_balance": get_reward_credit_balance(user),
-                        "message": "Daily full-feature prompt limit reached.",
+                        "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used),
+                        "reward_credit_balance": 0,
+                        "message": f"Daily {prompt_type} prompt limit reached.",
                     }
-            usage.free_prompts_used += 1
-            source_used = "free"
+
+        if prompt_type == "full":
+            usage.full_prompts_used += 1
         else:
-            reward_balance = get_reward_credit_balance(user)
-            if reward_balance > 0:
-                RewardCreditLedger.objects.create(
-                    user=user,
-                    amount=-1,
-                    source="prompt_consumption",
-                    status=CreditStatus.COMPLETED,
-                    metadata={"consumed_via": source, "prompt_type": prompt_type},
-                )
-                usage.reward_prompts_used += 1
-                source_used = "reward"
-            else:
-                return {
-                    "allowed": False,
-                    "source_used": None,
-                    "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used),
-                    "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used),
-                    "reward_credit_balance": 0,
-                    "message": f"Daily {prompt_type} prompt limit reached.",
-                }
+            usage.text_prompts_used += 1
 
-    if prompt_type == "full":
-        usage.full_prompts_used += 1
-    else:
-        usage.text_prompts_used += 1
+        usage.total_prompts_used += 1
+        usage.save()
 
-    usage.total_prompts_used += 1
-    usage.save()
+        UsageEvent.objects.create(
+            user=user,
+            event_type=UsageEvent.EventType.CONSUME_PROMPT,
+            prompt_count=1,
+            metadata={"source": source, "source_used": source_used, "prompt_type": prompt_type},
+        )
 
-    UsageEvent.objects.create(
-        user=user,
-        event_type=UsageEvent.EventType.CONSUME_PROMPT,
-        prompt_count=1,
-        metadata={"source": source, "source_used": source_used, "prompt_type": prompt_type},
-    )
-
-    return {
-        "allowed": True,
-        "source_used": source_used,
-        "prompt_type": prompt_type,
-        "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used) if not profile.is_pro else 999,
-        "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used) if not profile.is_pro else 999,
-        "reward_credit_balance": get_reward_credit_balance(user),
-        "message": "Prompt consumed successfully.",
-    }
+        return {
+            "allowed": True,
+            "source_used": source_used,
+            "prompt_type": prompt_type,
+            "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used) if not profile.is_pro else 999,
+            "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used) if not profile.is_pro else 999,
+            "reward_credit_balance": get_reward_credit_balance(user),
+            "message": "Prompt consumed successfully.",
+        }
 
 
 # ── Profile helpers ──
@@ -321,51 +315,43 @@ def can_download(user, count: int = 1) -> tuple[bool, int]:
     return count <= remaining, remaining
 
 
-@transaction.atomic
 def consume_download(user, count: int = 1) -> dict:
     """Atomically consume download credits. Returns result dict."""
-    profile = Profile.objects.get(user=user)
     today = timezone.now().date()
 
-    usage, _ = DailyUsage.objects.select_for_update().get_or_create(
-        user=user,
-        date=today,
-        defaults={
-            "free_prompts_used": 0,
-            "reward_prompts_used": 0,
-            "total_prompts_used": 0,
-            "text_prompts_used": 0,
-            "full_prompts_used": 0,
-            "downloads_used": 0,
-        },
-    )
+    # 1. Ensure the DailyUsage record exists safely outside the transaction lock
+    get_or_create_daily_usage(user, today)
 
-    if not profile.is_pro:
-        remaining = FREE_DOWNLOAD_DAILY_LIMIT - usage.downloads_used
-        if count > remaining:
-            return {
-                "allowed": False,
-                "downloads_used_today": usage.downloads_used,
-                "downloads_remaining_today": max(0, remaining),
-                "download_daily_limit": FREE_DOWNLOAD_DAILY_LIMIT,
-                "message": f"Daily download limit reached ({FREE_DOWNLOAD_DAILY_LIMIT}/day). Upgrade to Pro for unlimited.",
-            }
+    with transaction.atomic():
+        profile = Profile.objects.get(user=user)
+        usage = DailyUsage.objects.select_for_update().get(user=user, date=today)
 
-    usage.downloads_used += count
-    usage.save()
+        if not profile.is_pro:
+            remaining = FREE_DOWNLOAD_DAILY_LIMIT - usage.downloads_used
+            if count > remaining:
+                return {
+                    "allowed": False,
+                    "downloads_used_today": usage.downloads_used,
+                    "downloads_remaining_today": max(0, remaining),
+                    "download_daily_limit": FREE_DOWNLOAD_DAILY_LIMIT,
+                    "message": f"Daily download limit reached ({FREE_DOWNLOAD_DAILY_LIMIT}/day). Upgrade to Pro for unlimited.",
+                }
 
-    UsageEvent.objects.create(
-        user=user,
-        event_type=UsageEvent.EventType.DOWNLOAD_COMPLETED,
-        prompt_count=count,
-        metadata={"source": "extension", "count": count},
-    )
+        usage.downloads_used += count
+        usage.save()
 
-    new_remaining = max(0, FREE_DOWNLOAD_DAILY_LIMIT - usage.downloads_used) if not profile.is_pro else 999
-    return {
-        "allowed": True,
-        "downloads_used_today": usage.downloads_used,
-        "downloads_remaining_today": new_remaining,
-        "download_daily_limit": FREE_DOWNLOAD_DAILY_LIMIT if not profile.is_pro else 999,
-        "message": f"{count} download(s) recorded.",
-    }
+        UsageEvent.objects.create(
+            user=user,
+            event_type=UsageEvent.EventType.DOWNLOAD_COMPLETED,
+            prompt_count=count,
+            metadata={"source": "extension", "count": count},
+        )
+
+        new_remaining = max(0, FREE_DOWNLOAD_DAILY_LIMIT - usage.downloads_used) if not profile.is_pro else 999
+        return {
+            "allowed": True,
+            "downloads_used_today": usage.downloads_used,
+            "downloads_remaining_today": new_remaining,
+            "download_daily_limit": FREE_DOWNLOAD_DAILY_LIMIT if not profile.is_pro else 999,
+            "message": f"{count} download(s) recorded.",
+        }
