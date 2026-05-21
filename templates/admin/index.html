@@ -107,6 +107,42 @@
     .af-progress-fill.blue { background: linear-gradient(90deg, #3b82f6, #60a5fa); box-shadow: 0 0 10px rgba(59,130,246,0.4); }
     .af-progress-fill.amber { background: linear-gradient(90deg, #d97706, #fbbf24); box-shadow: 0 0 10px rgba(217,119,6,0.4); }
     .af-progress-fill.slate { background: linear-gradient(90deg, #4b5563, #9ca3af); }
+    .af-progress-fill.red { background: linear-gradient(90deg, #dc2626, #f87171); box-shadow: 0 0 10px rgba(220,38,38,0.4); }
+    .af-progress-fill.indigo { background: linear-gradient(90deg, #6366f1, #818cf8); box-shadow: 0 0 10px rgba(99,102,241,0.4); }
+    .af-progress-fill.yellow { background: linear-gradient(90deg, #eab308, #facc15); box-shadow: 0 0 10px rgba(234,179,8,0.4); }
+
+    /* ── Queue Mode Cards ── */
+    .af-mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+    @media (max-width: 768px) { .af-mode-grid { grid-template-columns: 1fr; } }
+    .af-mode-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 1.25rem 1.5rem; display: flex; align-items: center; gap: 1rem; transition: all 0.3s ease; position: relative; overflow: hidden; }
+    .af-mode-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+    .af-mode-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 14px 14px 0 0; }
+    .af-mode-card.lite::after { background: linear-gradient(90deg, #eab308, #facc15); }
+    .af-mode-card.lite:hover { border-color: rgba(234,179,8,0.3); }
+    .af-mode-card.flow::after { background: linear-gradient(90deg, #10b981, #34d399); }
+    .af-mode-card.flow:hover { border-color: rgba(16,185,129,0.3); }
+    .af-mode-card.full::after { background: linear-gradient(90deg, #6366f1, #818cf8); }
+    .af-mode-card.full:hover { border-color: rgba(99,102,241,0.3); }
+    .af-mode-emoji { font-size: 2rem; line-height: 1; }
+    .af-mode-info { flex: 1; }
+    .af-mode-label { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.2rem; }
+    .af-mode-num { font-size: 1.75rem; font-weight: 800; color: var(--text-heading); letter-spacing: -0.02em; }
+    .af-mode-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
+
+    /* ── Animated counter ── */
+    @keyframes fadeInUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    .af-hero-num { animation: fadeInUp 0.6s ease-out both; }
+    .af-hero-item:nth-child(2) .af-hero-num { animation-delay: 0.1s; }
+    .af-hero-item:nth-child(3) .af-hero-num { animation-delay: 0.2s; }
+    .af-hero-item:nth-child(4) .af-hero-num { animation-delay: 0.3s; }
+
+    /* ── Marketing Funnel Bar ── */
+    .af-mkt-pipeline { display: flex; gap: 2px; height: 8px; border-radius: 999px; overflow: hidden; background: rgba(0,0,0,0.2); margin-top: 0.75rem; }
+    .af-mkt-seg { height: 100%; transition: width 0.8s ease; }
+    .af-mkt-seg.active { background: #3b82f6; }
+    .af-mkt-seg.completed { background: #10b981; }
+    .af-mkt-seg.acted { background: #f59e0b; }
+    .af-mkt-seg.converted { background: #6366f1; }
 
     .af-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
     .af-badge-pro { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
@@ -215,6 +251,35 @@
     </div>
 </div>
 
+<!-- ── QUEUE RUNS BY MODE ── -->
+<div class="af-section-title"><span class="material-symbols-outlined" style="font-size: 18px;">play_circle</span> Queue Runs Today</div>
+<div class="af-mode-grid">
+    <div class="af-mode-card lite">
+        <div class="af-mode-emoji">⚡</div>
+        <div class="af-mode-info">
+            <div class="af-mode-label">Lite Mode</div>
+            <div class="af-mode-num">{{ queue_runs.lite }}</div>
+            <div class="af-mode-sub">Fast generation runs</div>
+        </div>
+    </div>
+    <div class="af-mode-card flow">
+        <div class="af-mode-emoji">🔄</div>
+        <div class="af-mode-info">
+            <div class="af-mode-label">Flow Mode</div>
+            <div class="af-mode-num">{{ queue_runs.flow }}</div>
+            <div class="af-mode-sub">Balanced quality runs</div>
+        </div>
+    </div>
+    <div class="af-mode-card full">
+        <div class="af-mode-emoji">🚀</div>
+        <div class="af-mode-info">
+            <div class="af-mode-label">Full Mode</div>
+            <div class="af-mode-num">{{ queue_runs.full }}</div>
+            <div class="af-mode-sub">Max quality (monthly)</div>
+        </div>
+    </div>
+</div>
+
 <!-- ── MARKETING & ENGAGEMENT ── -->
 <div class="af-section-title" style="margin-top: 2rem;"><span class="material-symbols-outlined" style="font-size: 18px;">mail</span> Marketing & Engagement</div>
 <div class="af-grid af-grid-4">
@@ -227,7 +292,15 @@
             </div>
         </div>
         <div class="af-card-metric">{{ marketing.total }}</div>
-        <div class="af-card-footer">{{ marketing.active }} active sequences</div>
+        <div class="af-card-footer">{{ marketing.active }} active · {{ marketing.completed }} completed</div>
+        {% if marketing.total > 0 %}
+        <div class="af-mkt-pipeline">
+            <div class="af-mkt-seg active" style="width: {% widthratio marketing.active marketing.total 100 %}%;"></div>
+            <div class="af-mkt-seg completed" style="width: {% widthratio marketing.completed marketing.total 100 %}%;"></div>
+            <div class="af-mkt-seg acted" style="width: {% widthratio marketing.acted marketing.total 100 %}%;"></div>
+            <div class="af-mkt-seg converted" style="width: {% widthratio marketing.converted_to_pro marketing.total 100 %}%;"></div>
+        </div>
+        {% endif %}
     </div>
 
     <!-- New Marketing KPI 2 -->

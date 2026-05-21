@@ -440,6 +440,13 @@ def dashboard_callback(request, context):
             "converted_to_pro": marketing_converted_to_pro,
             "conversion_rate": marketing_conversion_rate,
         },
+        # Queue runs by mode (for mode cards)
+        "queue_runs": {
+            "lite": today_lite_runs,
+            "flow": today_flow_runs,
+            "full": today_full_runs,
+            "total": today_lite_runs + today_flow_runs + today_full_runs,
+        },
     })
 
     return context
