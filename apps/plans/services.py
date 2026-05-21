@@ -161,7 +161,7 @@ def get_entitlement_snapshot(user) -> dict:
         can_run = True
 
     # Queue run limits
-    lite_remaining = max(0, FREE_LITE_DAILY_LIMIT - usage.lite_runs_today)
+    lite_remaining = 999  # Lite is unlimited for all users
     flow_remaining = max(0, FREE_FLOW_DAILY_LIMIT - usage.flow_runs_today)
     full_monthly_remaining = max(0, FREE_FULL_MONTHLY_LIMIT - monthly.full_runs_used)
 
@@ -190,8 +190,8 @@ def get_entitlement_snapshot(user) -> dict:
         "downloads_remaining_today": max(0, FREE_DOWNLOAD_DAILY_LIMIT - usage.downloads_used),
         # Queue run limits (per mode)
         "lite_runs_today": usage.lite_runs_today,
-        "lite_daily_limit": FREE_LITE_DAILY_LIMIT,
-        "lite_remaining_today": lite_remaining if not profile.is_pro else 999,
+        "lite_daily_limit": 0,  # 0 = unlimited
+        "lite_remaining_today": 999,  # Lite is always unlimited
         "flow_runs_today": usage.flow_runs_today,
         "flow_daily_limit": FREE_FLOW_DAILY_LIMIT,
         "flow_remaining_today": flow_remaining if not profile.is_pro else 999,
@@ -504,15 +504,9 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
 
         # Enforce limits for free users only
         if not profile.is_pro:
-            if mode == "lite" and usage.lite_runs_today >= FREE_LITE_DAILY_LIMIT:
-                return {
-                    "allowed": False,
-                    "used": usage.lite_runs_today,
-                    "limit": FREE_LITE_DAILY_LIMIT,
-                    "remaining": 0,
-                    "period": "day",
-                    "message": f"Lite mode limit reached ({FREE_LITE_DAILY_LIMIT}/day). Upgrade to Pro for unlimited.",
-                }
+            # Lite mode is unlimited for all users — no limit check needed
+            if False:  # was: mode == "lite" limit check
+                pass
             elif mode == "flow" and usage.flow_runs_today >= FREE_FLOW_DAILY_LIMIT:
                 return {
                     "allowed": False,
