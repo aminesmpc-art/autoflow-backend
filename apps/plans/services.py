@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from apps.plans.models import PlanType, Profile
 from apps.rewards.models import CreditStatus, RewardCreditLedger
-from apps.usage.models import DailyUsage, UsageEvent
+from apps.usage.models import DailyUsage, MonthlyUsage, UsageEvent
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 FREE_TEXT_DAILY_LIMIT = getattr(settings, "FREE_TEXT_DAILY_LIMIT", 100)
 FREE_FULL_DAILY_LIMIT = getattr(settings, "FREE_FULL_DAILY_LIMIT", 20)
 FREE_DOWNLOAD_DAILY_LIMIT = getattr(settings, "FREE_DOWNLOAD_DAILY_LIMIT", 20)
+# Queue run limits (per mode)
+FREE_LITE_DAILY_LIMIT = getattr(settings, "FREE_LITE_DAILY_LIMIT", 3)
+FREE_FLOW_DAILY_LIMIT = getattr(settings, "FREE_FLOW_DAILY_LIMIT", 6)
+FREE_FULL_MONTHLY_LIMIT = getattr(settings, "FREE_FULL_MONTHLY_LIMIT", 2)
 # Keep legacy constant for backward compat
 FREE_DAILY_LIMIT = FREE_TEXT_DAILY_LIMIT
 
@@ -50,6 +54,21 @@ def get_or_create_daily_usage(user, target_date: date_type = None) -> DailyUsage
         return usage
     except IntegrityError:
         return DailyUsage.objects.get(user=user, date=target_date)
+
+
+def get_or_create_monthly_usage(user, year: int = None, month: int = None) -> MonthlyUsage:
+    """Get or create the MonthlyUsage row for user+year+month."""
+    now = timezone.now()
+    year = year or now.year
+    month = month or now.month
+    try:
+        usage, _ = MonthlyUsage.objects.get_or_create(
+            user=user, year=year, month=month,
+            defaults={"full_runs_used": 0},
+        )
+        return usage
+    except IntegrityError:
+        return MonthlyUsage.objects.get(user=user, year=year, month=month)
 
 
 def get_free_remaining(user, target_date: date_type = None) -> int:
@@ -115,8 +134,10 @@ def grant_reward_credits(
 def get_entitlement_snapshot(user) -> dict:
     """Full snapshot of a user's current entitlement state."""
     profile = Profile.objects.select_related("user").get(user=user)
-    today = timezone.now().date()
+    now = timezone.now()
+    today = now.date()
     usage = get_or_create_daily_usage(user, today)
+    monthly = get_or_create_monthly_usage(user, now.year, now.month)
     reward_balance = get_reward_credit_balance(user)
 
     text_remaining = max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used)
@@ -136,6 +157,11 @@ def get_entitlement_snapshot(user) -> dict:
         can_run = True
     elif reward_balance > 0:
         can_run = True
+
+    # Queue run limits
+    lite_remaining = max(0, FREE_LITE_DAILY_LIMIT - usage.lite_runs_today)
+    flow_remaining = max(0, FREE_FLOW_DAILY_LIMIT - usage.flow_runs_today)
+    full_monthly_remaining = max(0, FREE_FULL_MONTHLY_LIMIT - monthly.full_runs_used)
 
     return {
         "plan_type": profile.plan_type,
@@ -160,6 +186,16 @@ def get_entitlement_snapshot(user) -> dict:
         "download_daily_limit": FREE_DOWNLOAD_DAILY_LIMIT,
         "downloads_used_today": usage.downloads_used,
         "downloads_remaining_today": max(0, FREE_DOWNLOAD_DAILY_LIMIT - usage.downloads_used),
+        # Queue run limits (per mode)
+        "lite_runs_today": usage.lite_runs_today,
+        "lite_daily_limit": FREE_LITE_DAILY_LIMIT,
+        "lite_remaining_today": lite_remaining if not profile.is_pro else 999,
+        "flow_runs_today": usage.flow_runs_today,
+        "flow_daily_limit": FREE_FLOW_DAILY_LIMIT,
+        "flow_remaining_today": flow_remaining if not profile.is_pro else 999,
+        "full_runs_this_month": monthly.full_runs_used,
+        "full_monthly_limit": FREE_FULL_MONTHLY_LIMIT,
+        "full_remaining_this_month": full_monthly_remaining if not profile.is_pro else 999,
     }
 
 
@@ -360,4 +396,185 @@ def consume_download(user, count: int = 1) -> dict:
             "downloads_remaining_today": new_remaining,
             "download_daily_limit": FREE_DOWNLOAD_DAILY_LIMIT if not profile.is_pro else 999,
             "message": f"{count} download(s) recorded.",
+        }
+
+
+# ── Queue run consumption ──
+
+
+_MODE_EVENT_MAP = {
+    "lite": UsageEvent.EventType.QUEUE_RUN_LITE,
+    "flow": UsageEvent.EventType.QUEUE_RUN_FLOW,
+    "full": UsageEvent.EventType.QUEUE_RUN_FULL,
+}
+
+
+def can_start_queue(user, mode: str) -> dict:
+    """Check if user can start a queue in the given mode.
+
+    Returns { allowed, used, limit, remaining, period, message }.
+    """
+    profile = Profile.objects.get(user=user)
+
+    if profile.is_pro:
+        return {
+            "allowed": True,
+            "used": 0,
+            "limit": 999,
+            "remaining": 999,
+            "period": "unlimited",
+            "message": "Pro — unlimited.",
+        }
+
+    now = timezone.now()
+    today = now.date()
+    usage = get_or_create_daily_usage(user, today)
+
+    if mode == "lite":
+        used = usage.lite_runs_today
+        limit = FREE_LITE_DAILY_LIMIT
+        remaining = max(0, limit - used)
+        period = "day"
+    elif mode == "flow":
+        used = usage.flow_runs_today
+        limit = FREE_FLOW_DAILY_LIMIT
+        remaining = max(0, limit - used)
+        period = "day"
+    elif mode == "full":
+        monthly = get_or_create_monthly_usage(user, now.year, now.month)
+        used = monthly.full_runs_used
+        limit = FREE_FULL_MONTHLY_LIMIT
+        remaining = max(0, limit - used)
+        period = "month"
+    else:
+        return {
+            "allowed": False,
+            "used": 0,
+            "limit": 0,
+            "remaining": 0,
+            "period": "day",
+            "message": f"Unknown mode: {mode}",
+        }
+
+    if remaining <= 0:
+        return {
+            "allowed": False,
+            "used": used,
+            "limit": limit,
+            "remaining": 0,
+            "period": period,
+            "message": f"{mode.capitalize()} mode limit reached ({limit}/{period}). Upgrade to Pro for unlimited.",
+        }
+
+    return {
+        "allowed": True,
+        "used": used,
+        "limit": limit,
+        "remaining": remaining,
+        "period": period,
+        "message": f"{remaining} {mode} run(s) remaining this {period}.",
+    }
+
+
+def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
+    """Atomically record a queue run for the given mode.
+
+    Returns consumption result dict.
+    """
+    now = timezone.now()
+    today = now.date()
+
+    # Ensure rows exist outside the lock
+    get_or_create_daily_usage(user, today)
+    if mode == "full":
+        get_or_create_monthly_usage(user, now.year, now.month)
+
+    with transaction.atomic():
+        profile = Profile.objects.get(user=user)
+        usage = DailyUsage.objects.select_for_update().get(user=user, date=today)
+
+        if profile.is_pro:
+            # Pro: record but don't check limits
+            pass
+        elif mode == "lite":
+            if usage.lite_runs_today >= FREE_LITE_DAILY_LIMIT:
+                return {
+                    "allowed": False,
+                    "used": usage.lite_runs_today,
+                    "limit": FREE_LITE_DAILY_LIMIT,
+                    "remaining": 0,
+                    "period": "day",
+                    "message": f"Lite mode limit reached ({FREE_LITE_DAILY_LIMIT}/day). Upgrade to Pro for unlimited.",
+                }
+            usage.lite_runs_today += 1
+            usage.save()
+        elif mode == "flow":
+            if usage.flow_runs_today >= FREE_FLOW_DAILY_LIMIT:
+                return {
+                    "allowed": False,
+                    "used": usage.flow_runs_today,
+                    "limit": FREE_FLOW_DAILY_LIMIT,
+                    "remaining": 0,
+                    "period": "day",
+                    "message": f"Flow mode limit reached ({FREE_FLOW_DAILY_LIMIT}/day). Upgrade to Pro for unlimited.",
+                }
+            usage.flow_runs_today += 1
+            usage.save()
+        elif mode == "full":
+            monthly = MonthlyUsage.objects.select_for_update().get(
+                user=user, year=now.year, month=now.month
+            )
+            if monthly.full_runs_used >= FREE_FULL_MONTHLY_LIMIT:
+                return {
+                    "allowed": False,
+                    "used": monthly.full_runs_used,
+                    "limit": FREE_FULL_MONTHLY_LIMIT,
+                    "remaining": 0,
+                    "period": "month",
+                    "message": f"Full mode limit reached ({FREE_FULL_MONTHLY_LIMIT}/month). Upgrade to Pro for unlimited.",
+                }
+            monthly.full_runs_used += 1
+            monthly.save()
+        else:
+            return {
+                "allowed": False,
+                "used": 0,
+                "limit": 0,
+                "remaining": 0,
+                "period": "day",
+                "message": f"Unknown mode: {mode}",
+            }
+
+        # Log event
+        event_type = _MODE_EVENT_MAP.get(mode, UsageEvent.EventType.QUEUE_STARTED)
+        UsageEvent.objects.create(
+            user=user,
+            event_type=event_type,
+            prompt_count=prompt_count,
+            metadata={"mode": mode, "prompt_count": prompt_count},
+        )
+
+        # Compute remaining
+        if mode == "lite":
+            used = usage.lite_runs_today
+            limit = FREE_LITE_DAILY_LIMIT
+            period = "day"
+        elif mode == "flow":
+            used = usage.flow_runs_today
+            limit = FREE_FLOW_DAILY_LIMIT
+            period = "day"
+        else:  # full
+            used = monthly.full_runs_used
+            limit = FREE_FULL_MONTHLY_LIMIT
+            period = "month"
+
+        remaining = max(0, limit - used) if not profile.is_pro else 999
+
+        return {
+            "allowed": True,
+            "used": used if not profile.is_pro else 0,
+            "limit": limit if not profile.is_pro else 999,
+            "remaining": remaining,
+            "period": period,
+            "message": f"Queue run recorded. {remaining} {mode} run(s) remaining.",
         }

@@ -18,6 +18,7 @@ urlpatterns = [
     # Usage
     path("usage/consume", views.ConsumePromptView.as_view(), name="usage-consume"),
     path("usage/download", views.ConsumeDownloadView.as_view(), name="usage-download"),
+    path("usage/queue-run", views.ConsumeQueueRunView.as_view(), name="usage-queue-run"),
     path("usage/events", views.UsageEventView.as_view(), name="usage-events"),
 
     # Rewards

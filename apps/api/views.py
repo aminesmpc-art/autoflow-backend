@@ -11,6 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.plans.services import (
     consume_download,
     consume_prompt,
+    consume_queue_run,
     get_entitlement_snapshot,
     grant_reward_credits,
     mark_last_seen,
@@ -328,6 +329,23 @@ class UsageEventView(APIView):
             metadata=serializer.validated_data.get("metadata", {}),
         )
         return Response({"message": "Event recorded."}, status=status.HTTP_201_CREATED)
+
+
+class ConsumeQueueRunView(APIView):
+    """Check + consume a queue run for a given automation mode (lite/flow/full)."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        mode = request.data.get("mode", "lite")
+        if mode not in ("lite", "flow", "full"):
+            return Response(
+                {"detail": f"Invalid mode: {mode}. Must be lite, flow, or full."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        prompt_count = int(request.data.get("prompt_count", 1))
+        result = consume_queue_run(request.user, mode=mode, prompt_count=prompt_count)
+        http_status = status.HTTP_200_OK if result["allowed"] else status.HTTP_403_FORBIDDEN
+        return Response(result, status=http_status)
 
 
 # ================================================================

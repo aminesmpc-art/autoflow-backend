@@ -3,14 +3,14 @@ from django.contrib import admin
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
-from .models import DailyUsage, UsageEvent
+from .models import DailyUsage, MonthlyUsage, UsageEvent
 
 
 @admin.register(DailyUsage)
 class DailyUsageAdmin(ModelAdmin):
     list_display = (
         "user_display", "plan_badge", "date_display", "text_count", "full_count",
-        "download_count", "total_badge", "created_display",
+        "download_count", "lite_runs_display", "flow_runs_display", "total_badge", "created_display",
     )
     list_filter = ("date",)
     search_fields = ("user__email",)
@@ -147,11 +147,38 @@ class DailyUsageAdmin(ModelAdmin):
             obj.created_at.strftime("%b %d, %H:%M"),
         )
 
+    @admin.display(description="Lite Runs")
+    def lite_runs_display(self, obj):
+        count = obj.lite_runs_today
+        if count == 0:
+            return format_html('<span style="color:#475569;font-size:13px;">0</span>')
+        return format_html(
+            '<div style="display:inline-flex;align-items:center;gap:4px;">'
+            '<span style="color:#facc15;font-size:12px;">⚡</span>'
+            '<span style="font-weight:700;font-size:14px;color:#fde68a;'
+            'font-variant-numeric:tabular-nums;">{}</span></div>',
+            count,
+        )
+
+    @admin.display(description="Flow Runs")
+    def flow_runs_display(self, obj):
+        count = obj.flow_runs_today
+        if count == 0:
+            return format_html('<span style="color:#475569;font-size:13px;">0</span>')
+        return format_html(
+            '<div style="display:inline-flex;align-items:center;gap:4px;">'
+            '<span style="color:#34d399;font-size:12px;">🔄</span>'
+            '<span style="font-weight:700;font-size:14px;color:#a7f3d0;'
+            'font-variant-numeric:tabular-nums;">{}</span></div>',
+            count,
+        )
+
     @admin.action(description="🔄 Reset all usage counters to 0")
     def reset_usage(self, request, queryset):
         count = queryset.update(
             free_prompts_used=0, reward_prompts_used=0, total_prompts_used=0,
             text_prompts_used=0, full_prompts_used=0, downloads_used=0,
+            lite_runs_today=0, flow_runs_today=0,
         )
         self.message_user(request, f"✅ Reset usage for {count} record(s).")
 
@@ -185,6 +212,9 @@ class UsageEventAdmin(ModelAdmin):
             "download_completed": ("#8b5cf6", "⬇️", "Download Done"),
             "run_aborted": ("#f59e0b", "⚠️", "Run Stopped"),
             "reward_granted": ("#eab308", "🎁", "Reward Given"),
+            "queue_run_lite": ("#eab308", "⚡", "Lite Run"),
+            "queue_run_flow": ("#10b981", "🔄", "Flow Run"),
+            "queue_run_full": ("#6366f1", "🚀", "Full Run"),
         }
         color, icon, label = colors.get(obj.event_type, ("#6b7280", "•", obj.event_type))
         return format_html(
@@ -244,4 +274,51 @@ class UsageEventAdmin(ModelAdmin):
         return format_html(
             '<span style="color:#6b7280;font-size:12px;">{} ago</span>',
             timesince(obj.created_at),
+        )
+
+
+@admin.register(MonthlyUsage)
+class MonthlyUsageAdmin(ModelAdmin):
+    list_display = ("user_display", "period_display", "full_runs_badge", "created_display")
+    list_filter = ("year", "month")
+    search_fields = ("user__email",)
+    readonly_fields = ("created_at", "updated_at")
+    list_per_page = 50
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("user")
+
+    @admin.display(description="User", ordering="user__email")
+    def user_display(self, obj):
+        return format_html(
+            '<span style="color:#60a5fa;font-weight:600;font-size:13px;">{}</span>',
+            obj.user.email,
+        )
+
+    @admin.display(description="Period")
+    def period_display(self, obj):
+        import calendar
+        month_name = calendar.month_abbr[obj.month]
+        return format_html(
+            '<span style="color:#d1d5db;font-weight:500;font-size:13px;">{} {}</span>',
+            month_name, obj.year,
+        )
+
+    @admin.display(description="Full Runs")
+    def full_runs_badge(self, obj):
+        count = obj.full_runs_used
+        if count == 0:
+            return format_html('<span style="color:#475569;font-size:13px;">0</span>')
+        bg = "#6366f1" if count < 2 else "#dc2626"
+        return format_html(
+            '<span style="background:{};color:#fff;padding:3px 10px;border-radius:6px;'
+            'font-size:12px;font-weight:700;">\U0001f680 {}</span>',
+            bg, count,
+        )
+
+    @admin.display(description="Created", ordering="created_at")
+    def created_display(self, obj):
+        return format_html(
+            '<span style="color:#6b7280;font-size:12px;">{}</span>',
+            obj.created_at.strftime("%b %d, %H:%M"),
         )
