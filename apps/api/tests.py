@@ -15,7 +15,12 @@ from rest_framework.test import APIClient
 from apps.plans.models import PlanType, Profile
 from apps.plans.services import (
     FREE_DAILY_LIMIT,
+    FREE_LITE_DAILY_LIMIT,
+    FREE_FLOW_DAILY_LIMIT,
+    FREE_FULL_MONTHLY_LIMIT,
     consume_prompt,
+    consume_queue_run,
+    can_start_queue,
     get_entitlement_snapshot,
     get_free_remaining,
     get_reward_credit_balance,
@@ -158,6 +163,10 @@ class EntitlementTests(TestCase):
         self.assertEqual(snapshot["free_daily_limit"], FREE_DAILY_LIMIT)
         self.assertEqual(snapshot["free_remaining_today"], FREE_DAILY_LIMIT)
         self.assertTrue(snapshot["can_run_prompt"])
+        # Queue run limits
+        self.assertEqual(snapshot["lite_remaining_today"], FREE_LITE_DAILY_LIMIT)
+        self.assertEqual(snapshot["flow_remaining_today"], FREE_FLOW_DAILY_LIMIT)
+        self.assertEqual(snapshot["full_remaining_this_month"], FREE_FULL_MONTHLY_LIMIT)
 
     def test_free_user_can_consume_prompt(self):
         result = consume_prompt(self.user)
@@ -196,6 +205,75 @@ class EntitlementTests(TestCase):
             result = consume_prompt(self.user)
             self.assertTrue(result["allowed"])
             self.assertEqual(result["source_used"], "pro")
+
+
+# ================================================================
+# QUEUE RUN LIMIT TESTS
+# ================================================================
+
+
+class QueueRunLimitTests(TestCase):
+    """Test per-mode queue run limits for free vs pro users."""
+
+    def setUp(self):
+        self.user = CustomUser.objects.create_user("qtest@example.com", "pass123", is_active=True)
+        self.profile = Profile.objects.create(user=self.user, plan_type=PlanType.FREE)
+
+    def test_free_user_lite_limit(self):
+        """Free user: 3 lite runs/day, then blocked."""
+        for i in range(FREE_LITE_DAILY_LIMIT):
+            result = consume_queue_run(self.user, "lite", 5)
+            self.assertTrue(result["allowed"], f"Run {i+1} should be allowed")
+        # Next one should be blocked
+        result = consume_queue_run(self.user, "lite", 5)
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["remaining"], 0)
+
+    def test_free_user_flow_limit(self):
+        """Free user: 6 flow runs/day, then blocked."""
+        for i in range(FREE_FLOW_DAILY_LIMIT):
+            result = consume_queue_run(self.user, "flow", 5)
+            self.assertTrue(result["allowed"], f"Run {i+1} should be allowed")
+        result = consume_queue_run(self.user, "flow", 5)
+        self.assertFalse(result["allowed"])
+
+    def test_free_user_full_monthly_limit(self):
+        """Free user: 2 full runs/month, then blocked."""
+        for i in range(FREE_FULL_MONTHLY_LIMIT):
+            result = consume_queue_run(self.user, "full", 5)
+            self.assertTrue(result["allowed"], f"Run {i+1} should be allowed")
+        result = consume_queue_run(self.user, "full", 5)
+        self.assertFalse(result["allowed"])
+
+    def test_pro_user_unlimited(self):
+        """Pro user: always allowed, no limit."""
+        self.profile.plan_type = PlanType.PRO
+        self.profile.is_pro_active = True
+        self.profile.save()
+        for _ in range(20):
+            result = consume_queue_run(self.user, "lite", 5)
+            self.assertTrue(result["allowed"])
+            self.assertEqual(result["remaining"], 999)
+
+    def test_pro_user_full_mode_no_crash(self):
+        """Pro user: full mode should NOT crash (bug #1 regression)."""
+        self.profile.plan_type = PlanType.PRO
+        self.profile.is_pro_active = True
+        self.profile.save()
+        result = consume_queue_run(self.user, "full", 5)
+        self.assertTrue(result["allowed"])
+
+    def test_can_start_queue_check_only(self):
+        """can_start_queue is read-only — doesn't consume."""
+        result = can_start_queue(self.user, "lite")
+        self.assertTrue(result["allowed"])
+        self.assertEqual(result["remaining"], FREE_LITE_DAILY_LIMIT)
+
+    def test_invalid_mode_rejected(self):
+        """Unknown mode returns allowed=False."""
+        result = consume_queue_run(self.user, "turbo", 1)
+        self.assertFalse(result["allowed"])
+        self.assertIn("Unknown", result["message"])
 
 
 class RewardCreditTests(TestCase):
@@ -261,12 +339,31 @@ class APIEndpointTests(TestCase):
         self.assertIn("plan_type", response.data)
         self.assertIn("can_run_prompt", response.data)
         self.assertIn("free_remaining_today", response.data)
+        # Queue run fields
+        self.assertIn("lite_remaining_today", response.data)
+        self.assertIn("flow_remaining_today", response.data)
+        self.assertIn("full_remaining_this_month", response.data)
 
     def test_consume_endpoint(self):
         self._login()
         response = self.client.post("/api/usage/consume")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["allowed"])
+
+    def test_queue_run_endpoint_lite(self):
+        self._login()
+        response = self.client.post("/api/usage/queue-run", {"mode": "lite", "prompt_count": 3})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["allowed"])
+
+    def test_queue_run_endpoint_invalid_mode(self):
+        self._login()
+        response = self.client.post("/api/usage/queue-run", {"mode": "turbo"})
+        self.assertEqual(response.status_code, 400)
+
+    def test_queue_run_endpoint_requires_auth(self):
+        response = self.client.post("/api/usage/queue-run", {"mode": "lite"})
+        self.assertEqual(response.status_code, 401)
 
     def test_usage_events_endpoint(self):
         self._login()
@@ -308,3 +405,4 @@ class WebhookTests(TestCase):
         event = WebhookEvent.objects.first()
         self.assertEqual(event.event_type, "membership.went_valid")
         self.assertTrue(event.processed)
+

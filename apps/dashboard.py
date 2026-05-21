@@ -40,13 +40,29 @@ def dashboard_callback(request, context):
         text=Sum("text_prompts_used"),
         full=Sum("full_prompts_used"),
         downloads=Sum("downloads_used"),
+        lite_runs=Sum("lite_runs_today"),
+        flow_runs=Sum("flow_runs_today"),
     )
     today_total = today_agg["total"] or 0
     today_text = today_agg["text"] or 0
     today_full = today_agg["full"] or 0
     today_downloads = today_agg["downloads"] or 0
+    today_lite_runs = today_agg["lite_runs"] or 0
+    today_flow_runs = today_agg["flow_runs"] or 0
     active_today = DailyUsage.objects.filter(date=today).count()
     total_events = UsageEvent.objects.filter(created_at__date=today).count()
+
+    # Queue run: full mode (monthly)
+    from apps.usage.models import MonthlyUsage
+    today_full_runs = MonthlyUsage.objects.filter(
+        year=today.year, month=today.month
+    ).aggregate(t=Sum("full_runs_used"))["t"] or 0
+
+    # Limit hit rate: how often free users get blocked (conversion signal)
+    today_limit_hits = UsageEvent.objects.filter(
+        created_at__date=today,
+        event_type__in=["queue_run_lite", "queue_run_flow", "queue_run_full"],
+    ).count()
 
     # ── Yesterday comparison (for trend arrows) ──
     yesterday = today - timedelta(days=1)
@@ -160,6 +176,9 @@ def dashboard_callback(request, context):
         "download_completed": "#a78bfa",
         "run_aborted": "#f59e0b",
         "reward_granted": "#eab308",
+        "queue_run_lite": "#facc15",
+        "queue_run_flow": "#34d399",
+        "queue_run_full": "#6366f1",
     }
     event_labels = {
         "consume_prompt": "Prompts",
@@ -169,6 +188,9 @@ def dashboard_callback(request, context):
         "download_completed": "Downloads",
         "run_aborted": "Aborted",
         "reward_granted": "Rewards",
+        "queue_run_lite": "Lite Run",
+        "queue_run_flow": "Flow Run",
+        "queue_run_full": "Full Run",
     }
     for ev in event_dist_qs:
         event_distribution.append({
@@ -191,6 +213,9 @@ def dashboard_callback(request, context):
         "download_completed": "⬇️",
         "run_aborted": "⚠️",
         "reward_granted": "🎁",
+        "queue_run_lite": "⚡",
+        "queue_run_flow": "🔄",
+        "queue_run_full": "🚀",
     }
     for ev in recent_events_qs:
         from django.utils.timesince import timesince
@@ -311,6 +336,13 @@ def dashboard_callback(request, context):
                 "metric": total_extractions,
                 "footer": f"{today_extractions} today" if today_extractions else "Video prompt extractor",
                 "icon": "movie",
+            },
+            {
+                "title": "Queue Runs Today",
+                "metric": today_lite_runs + today_flow_runs + today_full_runs,
+                "footer": f"⚡{today_lite_runs} Lite · 🔄{today_flow_runs} Flow · 🚀{today_full_runs} Full",
+                "highlight": f"{today_limit_hits} runs recorded" if today_limit_hits else None,
+                "icon": "play_circle",
             },
             {
                 "title": "Pending Webhooks",

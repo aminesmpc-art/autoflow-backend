@@ -49,6 +49,8 @@ def get_or_create_daily_usage(user, target_date: date_type = None) -> DailyUsage
                 "full_prompts_used": 0,
                 "extend_prompts_used": 0,
                 "downloads_used": 0,
+                "lite_runs_today": 0,
+                "flow_runs_today": 0,
             },
         )
         return usage
@@ -493,11 +495,16 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
         profile = Profile.objects.get(user=user)
         usage = DailyUsage.objects.select_for_update().get(user=user, date=today)
 
-        if profile.is_pro:
-            # Pro: record but don't check limits
-            pass
-        elif mode == "lite":
-            if usage.lite_runs_today >= FREE_LITE_DAILY_LIMIT:
+        # For full mode, always fetch monthly (Pro and Free both need it for tracking)
+        monthly = None
+        if mode == "full":
+            monthly = MonthlyUsage.objects.select_for_update().get(
+                user=user, year=now.year, month=now.month
+            )
+
+        # Enforce limits for free users only
+        if not profile.is_pro:
+            if mode == "lite" and usage.lite_runs_today >= FREE_LITE_DAILY_LIMIT:
                 return {
                     "allowed": False,
                     "used": usage.lite_runs_today,
@@ -506,10 +513,7 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
                     "period": "day",
                     "message": f"Lite mode limit reached ({FREE_LITE_DAILY_LIMIT}/day). Upgrade to Pro for unlimited.",
                 }
-            usage.lite_runs_today += 1
-            usage.save()
-        elif mode == "flow":
-            if usage.flow_runs_today >= FREE_FLOW_DAILY_LIMIT:
+            elif mode == "flow" and usage.flow_runs_today >= FREE_FLOW_DAILY_LIMIT:
                 return {
                     "allowed": False,
                     "used": usage.flow_runs_today,
@@ -518,13 +522,7 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
                     "period": "day",
                     "message": f"Flow mode limit reached ({FREE_FLOW_DAILY_LIMIT}/day). Upgrade to Pro for unlimited.",
                 }
-            usage.flow_runs_today += 1
-            usage.save()
-        elif mode == "full":
-            monthly = MonthlyUsage.objects.select_for_update().get(
-                user=user, year=now.year, month=now.month
-            )
-            if monthly.full_runs_used >= FREE_FULL_MONTHLY_LIMIT:
+            elif mode == "full" and monthly.full_runs_used >= FREE_FULL_MONTHLY_LIMIT:
                 return {
                     "allowed": False,
                     "used": monthly.full_runs_used,
@@ -533,17 +531,26 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
                     "period": "month",
                     "message": f"Full mode limit reached ({FREE_FULL_MONTHLY_LIMIT}/month). Upgrade to Pro for unlimited.",
                 }
+            elif mode not in ("lite", "flow", "full"):
+                return {
+                    "allowed": False,
+                    "used": 0,
+                    "limit": 0,
+                    "remaining": 0,
+                    "period": "day",
+                    "message": f"Unknown mode: {mode}",
+                }
+
+        # Increment counters (for both Pro and Free — Pro for monitoring)
+        if mode == "lite":
+            usage.lite_runs_today += 1
+            usage.save()
+        elif mode == "flow":
+            usage.flow_runs_today += 1
+            usage.save()
+        elif mode == "full":
             monthly.full_runs_used += 1
             monthly.save()
-        else:
-            return {
-                "allowed": False,
-                "used": 0,
-                "limit": 0,
-                "remaining": 0,
-                "period": "day",
-                "message": f"Unknown mode: {mode}",
-            }
 
         # Log event
         event_type = _MODE_EVENT_MAP.get(mode, UsageEvent.EventType.QUEUE_STARTED)
@@ -578,3 +585,4 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
             "period": period,
             "message": f"Queue run recorded. {remaining} {mode} run(s) remaining.",
         }
+
