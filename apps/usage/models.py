@@ -25,6 +25,7 @@ class DailyUsage(models.Model):
     # Queue run counters (per mode)
     lite_runs_today = models.PositiveIntegerField(default=0, help_text="Lite queue runs today")
     flow_runs_today = models.PositiveIntegerField(default=0, help_text="Flow queue runs today")
+    full_runs_today = models.PositiveIntegerField(default=0, help_text="Full queue runs today")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

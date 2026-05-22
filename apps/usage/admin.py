@@ -178,7 +178,7 @@ class DailyUsageAdmin(ModelAdmin):
         count = queryset.update(
             free_prompts_used=0, reward_prompts_used=0, total_prompts_used=0,
             text_prompts_used=0, full_prompts_used=0, downloads_used=0,
-            lite_runs_today=0, flow_runs_today=0,
+            lite_runs_today=0, flow_runs_today=0, full_runs_today=0,
         )
         self.message_user(request, f"✅ Reset usage for {count} record(s).")
 

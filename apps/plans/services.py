@@ -25,8 +25,8 @@ FREE_FULL_DAILY_LIMIT = getattr(settings, "FREE_FULL_DAILY_LIMIT", 20)
 FREE_DOWNLOAD_DAILY_LIMIT = getattr(settings, "FREE_DOWNLOAD_DAILY_LIMIT", 20)
 # Queue run limits (per mode)
 FREE_LITE_DAILY_LIMIT = getattr(settings, "FREE_LITE_DAILY_LIMIT", 3)
-FREE_FLOW_DAILY_LIMIT = getattr(settings, "FREE_FLOW_DAILY_LIMIT", 6)
-FREE_FULL_MONTHLY_LIMIT = getattr(settings, "FREE_FULL_MONTHLY_LIMIT", 2)
+FREE_FLOW_DAILY_LIMIT = getattr(settings, "FREE_FLOW_DAILY_LIMIT", 5)
+FREE_FULL_DAILY_LIMIT_RUNS = getattr(settings, "FREE_FULL_DAILY_LIMIT_RUNS", 1)
 # Keep legacy constant for backward compat
 FREE_DAILY_LIMIT = FREE_TEXT_DAILY_LIMIT
 
@@ -51,6 +51,7 @@ def get_or_create_daily_usage(user, target_date: date_type = None) -> DailyUsage
                 "downloads_used": 0,
                 "lite_runs_today": 0,
                 "flow_runs_today": 0,
+                "full_runs_today": 0,
             },
         )
         return usage
@@ -163,7 +164,7 @@ def get_entitlement_snapshot(user) -> dict:
     # Queue run limits
     lite_remaining = 999  # Lite is unlimited for all users
     flow_remaining = max(0, FREE_FLOW_DAILY_LIMIT - usage.flow_runs_today)
-    full_monthly_remaining = max(0, FREE_FULL_MONTHLY_LIMIT - monthly.full_runs_used)
+    full_daily_remaining = max(0, FREE_FULL_DAILY_LIMIT_RUNS - usage.full_runs_today)
 
     return {
         "plan_type": profile.plan_type,
@@ -195,9 +196,13 @@ def get_entitlement_snapshot(user) -> dict:
         "flow_runs_today": usage.flow_runs_today,
         "flow_daily_limit": FREE_FLOW_DAILY_LIMIT,
         "flow_remaining_today": flow_remaining if not profile.is_pro else 999,
+        "full_runs_today": usage.full_runs_today,
+        "full_daily_limit": FREE_FULL_DAILY_LIMIT_RUNS,
+        "full_remaining_today_runs": full_daily_remaining if not profile.is_pro else 999,
+        # Legacy monthly fields (keep for backward compat)
         "full_runs_this_month": monthly.full_runs_used,
-        "full_monthly_limit": FREE_FULL_MONTHLY_LIMIT,
-        "full_remaining_this_month": full_monthly_remaining if not profile.is_pro else 999,
+        "full_monthly_limit": FREE_FULL_DAILY_LIMIT_RUNS,
+        "full_remaining_this_month": full_daily_remaining if not profile.is_pro else 999,
     }
 
 
@@ -516,14 +521,14 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
                     "period": "day",
                     "message": f"Flow mode limit reached ({FREE_FLOW_DAILY_LIMIT}/day). Upgrade to Pro for unlimited.",
                 }
-            elif mode == "full" and monthly.full_runs_used >= FREE_FULL_MONTHLY_LIMIT:
+            elif mode == "full" and usage.full_runs_today >= FREE_FULL_DAILY_LIMIT_RUNS:
                 return {
                     "allowed": False,
-                    "used": monthly.full_runs_used,
-                    "limit": FREE_FULL_MONTHLY_LIMIT,
+                    "used": usage.full_runs_today,
+                    "limit": FREE_FULL_DAILY_LIMIT_RUNS,
                     "remaining": 0,
-                    "period": "month",
-                    "message": f"Full mode limit reached ({FREE_FULL_MONTHLY_LIMIT}/month). Upgrade to Pro for unlimited.",
+                    "period": "day",
+                    "message": f"Full mode limit reached ({FREE_FULL_DAILY_LIMIT_RUNS}/day). Upgrade to Pro for unlimited.",
                 }
             elif mode not in ("lite", "flow", "full"):
                 return {
@@ -543,8 +548,11 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
             usage.flow_runs_today += 1
             usage.save()
         elif mode == "full":
-            monthly.full_runs_used += 1
-            monthly.save()
+            usage.full_runs_today += 1
+            usage.save()
+            if monthly:
+                monthly.full_runs_used += 1
+                monthly.save()
 
         # Log event
         event_type = _MODE_EVENT_MAP.get(mode, UsageEvent.EventType.QUEUE_STARTED)
@@ -565,9 +573,9 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
             limit = FREE_FLOW_DAILY_LIMIT
             period = "day"
         else:  # full
-            used = monthly.full_runs_used
-            limit = FREE_FULL_MONTHLY_LIMIT
-            period = "month"
+            used = usage.full_runs_today
+            limit = FREE_FULL_DAILY_LIMIT_RUNS
+            period = "day"
 
         remaining = max(0, limit - used) if not profile.is_pro else 999
 
