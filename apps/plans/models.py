@@ -53,5 +53,9 @@ class Profile(models.Model):
             return False
         # Auto-expire time-limited Pro (e.g. review reward)
         if self.pro_expires_at and timezone.now() > self.pro_expires_at:
+            # Auto-clean: reset DB fields so the stale Pro status is removed
+            self.plan_type = PlanType.FREE
+            self.is_pro_active = False
+            self.save(update_fields=["plan_type", "is_pro_active", "updated_at"])
             return False
         return True
