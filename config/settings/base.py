@@ -123,19 +123,13 @@ UNFOLD = {
                 ],
             },
             {
-                "title": "Rewards & Webhooks",
+                "title": "Payments & Rewards",
                 "separator": True,
                 "items": [
                     {
                         "title": "Bonus Credits",
                         "icon": "redeem",
                         "link": "/admin/rewards/rewardcreditledger/",
-                    },
-                    {
-                        "title": "Review Claims",
-                        "icon": "star",
-                        "link": "/admin/rewards/reviewrewardclaim/",
-                        "badge": "apps.dashboard.badge_callback_pending_claims",
                     },
                     {
                         "title": "Payment Webhooks",

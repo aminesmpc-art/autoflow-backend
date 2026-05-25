@@ -9,17 +9,30 @@
 
 {% block content %}
 <style>
-    /* ── Premium Glassmorphism Theme ── */
+    /* ── Premium Glassmorphism Theme v2 ── */
     :root {
-        --glass-bg: rgba(255, 255, 255, 0.02);
-        --glass-border: rgba(255, 255, 255, 0.05);
-        --glass-hover: rgba(255, 255, 255, 0.04);
-        --glass-border-hover: rgba(16, 185, 129, 0.3);
-        
+        --glass-bg: rgba(255, 255, 255, 0.025);
+        --glass-border: rgba(255, 255, 255, 0.06);
+        --glass-hover: rgba(255, 255, 255, 0.05);
+        --glass-border-hover: rgba(16, 185, 129, 0.35);
         --text-muted: #9ca3af;
         --text-body: #d1d5db;
         --text-heading: #f9fafb;
     }
+
+    /* Live pulse dot */
+    @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.5; transform:scale(.85); } }
+    .af-live-dot { width:8px; height:8px; border-radius:50%; background:#34d399; display:inline-block; animation: pulse 2s ease-in-out infinite; margin-right:6px; box-shadow: 0 0 8px rgba(52,211,153,0.6); }
+
+    /* Shimmer on hero numbers */
+    @keyframes shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+    .af-hero-num.shimmer { background: linear-gradient(90deg, #f9fafb 40%, #34d399 50%, #f9fafb 60%); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 4s linear infinite; }
+
+    /* Gradient border glow on hero */
+    @keyframes borderGlow { 0%,100% { border-color: rgba(16,185,129,0.2); } 50% { border-color: rgba(99,102,241,0.3); } }
+    
+    /* Auto-refresh indicator */
+    .af-refresh-bar { position:fixed; top:0; left:0; height:2px; background:linear-gradient(90deg,#10b981,#6366f1,#10b981); z-index:9999; transition: width 0.3s linear; }
 
     .af-grid { display: grid; gap: 1.25rem; margin-bottom: 1.5rem; }
     .af-grid-4 { grid-template-columns: repeat(4, 1fr); }
@@ -180,18 +193,33 @@
     .af-feed-time { font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.2rem; }
 </style>
 
+<!-- ── AUTO-REFRESH BAR ── -->
+<div class="af-refresh-bar" id="refreshBar" style="width:0%"></div>
+
+<!-- ── LIVE STATUS BAR ── -->
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; padding:0.5rem 0;">
+    <div style="display:flex; align-items:center; gap:0.5rem;">
+        <span class="af-live-dot"></span>
+        <span style="font-size:0.8rem; font-weight:600; color:#34d399; text-transform:uppercase; letter-spacing:0.08em;">Live Dashboard</span>
+    </div>
+    <div style="font-size:0.75rem; color:var(--text-muted);">
+        Last refresh: <span id="lastRefresh" style="color:var(--text-body);font-weight:600;"></span>
+        &nbsp;·&nbsp; Auto-refresh in <span id="countdown" style="color:#34d399;font-weight:600;">60</span>s
+    </div>
+</div>
+
 <!-- ── ALL-TIME HERO BANNER ── -->
-<div class="af-hero">
+<div class="af-hero" style="animation: borderGlow 6s ease-in-out infinite;">
     <div class="af-hero-item">
-        <div class="af-hero-num">{{ all_time.prompts|default:"0" }}</div>
+        <div class="af-hero-num" data-count="{{ all_time.prompts|default:'0' }}">{{ all_time.prompts|default:"0" }}</div>
         <div class="af-hero-label">Total Prompts Run</div>
     </div>
     <div class="af-hero-item">
-        <div class="af-hero-num">{{ all_time.downloads|default:"0" }}</div>
+        <div class="af-hero-num" data-count="{{ all_time.downloads|default:'0' }}">{{ all_time.downloads|default:"0" }}</div>
         <div class="af-hero-label">Videos Downloaded</div>
     </div>
     <div class="af-hero-item">
-        <div class="af-hero-num highlight">${{ revenue.mrr|floatformat:0 }}</div>
+        <div class="af-hero-num highlight shimmer">${{ revenue.mrr|floatformat:0 }}</div>
         <div class="af-hero-label">Monthly Recurring Rev</div>
     </div>
     <div class="af-hero-item">
@@ -201,7 +229,7 @@
 </div>
 
 <!-- ── PRIMARY KPIs ── -->
-<div class="af-section-title"><span class="material-symbols-outlined" style="font-size: 18px;">monitoring</span> Overview & Usage</div>
+<div class="af-section-title"><span class="material-symbols-outlined" style="font-size: 18px;">monitoring</span> Overview & Usage <span class="af-live-dot" style="margin-left:auto;"></span></div>
 <div class="af-grid af-grid-4">
     <div class="af-card">
         <div class="af-card-header">
@@ -252,7 +280,7 @@
 </div>
 
 <!-- ── QUEUE RUNS BY MODE ── -->
-<div class="af-section-title"><span class="material-symbols-outlined" style="font-size: 18px;">play_circle</span> Queue Runs Today</div>
+<div class="af-section-title"><span class="material-symbols-outlined" style="font-size: 18px;">play_circle</span> Queue Runs Today <span class="af-live-dot" style="margin-left:auto;"></span></div>
 <div class="af-mode-grid">
     <div class="af-mode-card lite">
         <div class="af-mode-emoji">⚡</div>
@@ -592,6 +620,55 @@
             } 
         });
     }
+})();
+
+// ── Auto-refresh & Live Clock ──
+(function() {
+    // Show last refresh time
+    const now = new Date();
+    const el = document.getElementById('lastRefresh');
+    if (el) el.textContent = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+    // Countdown to auto-refresh (90 seconds)
+    const REFRESH_INTERVAL = 90;
+    let remaining = REFRESH_INTERVAL;
+    const countdownEl = document.getElementById('countdown');
+    const barEl = document.getElementById('refreshBar');
+    
+    setInterval(() => {
+        remaining--;
+        if (countdownEl) countdownEl.textContent = remaining;
+        if (barEl) barEl.style.width = ((REFRESH_INTERVAL - remaining) / REFRESH_INTERVAL * 100) + '%';
+        if (remaining <= 0) window.location.reload();
+    }, 1000);
+
+    // Animated number counting
+    document.querySelectorAll('.af-hero-num[data-count]').forEach(el => {
+        const target = parseInt(el.dataset.count) || 0;
+        if (target === 0) return;
+        const duration = 1200;
+        const start = performance.now();
+        el.textContent = '0';
+        function tick(now) {
+            const progress = Math.min((now - start) / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            el.textContent = Math.floor(target * eased).toLocaleString();
+            if (progress < 1) requestAnimationFrame(tick);
+            else el.textContent = target.toLocaleString();
+        }
+        requestAnimationFrame(tick);
+    });
+
+    // Staggered card entrance
+    document.querySelectorAll('.af-card').forEach((card, i) => {
+        card.style.opacity = '0';
+        card.style.transform = 'translateY(12px)';
+        card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+        setTimeout(() => {
+            card.style.opacity = '1';
+            card.style.transform = 'translateY(0)';
+        }, 80 + i * 60);
+    });
 })();
 </script>
 {% endblock %}
