@@ -483,8 +483,11 @@ def can_start_queue(user, mode: str) -> dict:
     }
 
 
-def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
-    """Atomically record a queue run for the given mode.
+def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str = "text") -> dict:
+    """Atomically record a queue run AND pre-consume prompts for the given mode.
+
+    This ensures prompt usage is tracked even if the extension never calls back
+    per-prompt (e.g. tab closed, network issue, extension crash).
 
     Returns consumption result dict.
     """
@@ -540,27 +543,35 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
                     "message": f"Unknown mode: {mode}",
                 }
 
-        # Increment counters (for both Pro and Free — Pro for monitoring)
+        # Increment queue run counters (for both Pro and Free — Pro for monitoring)
         if mode == "lite":
             usage.lite_runs_today += 1
-            usage.save()
         elif mode == "flow":
             usage.flow_runs_today += 1
-            usage.save()
         elif mode == "full":
             usage.full_runs_today += 1
-            usage.save()
             if monthly:
                 monthly.full_runs_used += 1
                 monthly.save()
 
-        # Log event
+        # ── Pre-consume prompts atomically ──
+        # This is the critical fix: track prompt usage at queue start time
+        # so it's recorded even if the extension never calls back per-prompt.
+        if prompt_type == "full":
+            usage.full_prompts_used += prompt_count
+        else:
+            usage.text_prompts_used += prompt_count
+        usage.free_prompts_used += prompt_count
+        usage.total_prompts_used += prompt_count
+        usage.save()
+
+        # Log queue run event
         event_type = _MODE_EVENT_MAP.get(mode, UsageEvent.EventType.QUEUE_STARTED)
         UsageEvent.objects.create(
             user=user,
             event_type=event_type,
             prompt_count=prompt_count,
-            metadata={"mode": mode, "prompt_count": prompt_count},
+            metadata={"mode": mode, "prompt_count": prompt_count, "prompt_type": prompt_type},
         )
 
         # Compute remaining
@@ -587,4 +598,5 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1) -> dict:
             "period": period,
             "message": f"Queue run recorded. {remaining} {mode} run(s) remaining.",
         }
+
 

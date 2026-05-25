@@ -343,7 +343,10 @@ class ConsumeQueueRunView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         prompt_count = int(request.data.get("prompt_count", 1))
-        result = consume_queue_run(request.user, mode=mode, prompt_count=prompt_count)
+        prompt_type = request.data.get("prompt_type", "text")
+        if prompt_type not in ("text", "full"):
+            prompt_type = "text"
+        result = consume_queue_run(request.user, mode=mode, prompt_count=prompt_count, prompt_type=prompt_type)
         http_status = status.HTTP_200_OK if result["allowed"] else status.HTTP_403_FORBIDDEN
         return Response(result, status=http_status)
 
