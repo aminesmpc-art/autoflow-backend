@@ -176,16 +176,26 @@ class DailyUsageAdmin(ModelAdmin):
             obj.date.strftime("%b %d, %Y"),
         )
 
-    @admin.display(description="Prompts Usage")
+    @admin.display(description="Prompts (Confirmed)")
     def prompt_usage_bar(self, obj):
-        """Visual progress bar showing text + full + extend prompts with limit awareness."""
-        from apps.plans.services import FREE_TEXT_DAILY_LIMIT, FREE_FULL_DAILY_LIMIT
-        text = obj.text_prompts_used
-        full = obj.full_prompts_used
-        extend = obj.extend_prompts_used
-        total = text + full + extend
+        """Shows CONFIRMED prompt counts from events — what actually ran."""
+        from apps.plans.services import FREE_TEXT_DAILY_LIMIT
+        from apps.usage.models import UsageEvent
+        from django.db.models import Sum, Q
 
-        if total == 0:
+        # Real counts from events (what actually happened)
+        events = UsageEvent.objects.filter(
+            user=obj.user, event_type="consume_prompt",
+            created_at__date=obj.date,
+        )
+        confirmed = events.aggregate(s=Sum("prompt_count"))["s"] or 0
+        confirmed_full = events.filter(
+            metadata__prompt_type="full"
+        ).aggregate(s=Sum("prompt_count"))["s"] or 0
+        confirmed_text = confirmed - confirmed_full
+        pre_consumed = obj.total_prompts_used  # what was reserved at launch
+
+        if confirmed == 0 and pre_consumed == 0:
             return format_html('<span style="color:#475569;font-size:12px;">No prompts</span>')
 
         try:
@@ -193,11 +203,10 @@ class DailyUsageAdmin(ModelAdmin):
         except Exception:
             is_pro = False
 
-        # Calculate usage % against limit (for free users)
         limit = FREE_TEXT_DAILY_LIMIT
-        pct = min(100, round(obj.free_prompts_used / limit * 100)) if not is_pro and limit > 0 else 0
+        pct = min(100, round(confirmed / limit * 100)) if not is_pro and limit > 0 else 0
 
-        # Color coding based on limit usage
+        # Color coding
         if is_pro:
             bar_color = "linear-gradient(90deg, #6366f1, #818cf8)"
             glow = "rgba(99,102,241,0.4)"
@@ -211,28 +220,32 @@ class DailyUsageAdmin(ModelAdmin):
             bar_color = "linear-gradient(90deg, #10b981, #34d399)"
             glow = "rgba(16,185,129,0.4)"
 
-        # Build the breakdown chips
+        # Type chips
         chips = []
-        if text > 0:
-            chips.append(f'<span style="color:#60a5fa;font-size:11px;">📝{text}</span>')
-        if full > 0:
-            chips.append(f'<span style="color:#a78bfa;font-size:11px;">✨{full}</span>')
-        if extend > 0:
-            chips.append(f'<span style="color:#f472b6;font-size:11px;">🔗{extend}</span>')
+        if confirmed_text > 0:
+            chips.append(f'<span style="color:#60a5fa;font-size:11px;">📝{confirmed_text}</span>')
+        if confirmed_full > 0:
+            chips.append(f'<span style="color:#a78bfa;font-size:11px;">✨{confirmed_full}</span>')
+
+        # Show gap if pre-consumed differs from confirmed (user stopped early)
+        gap = pre_consumed - confirmed
+        if gap > 0:
+            chips.append(
+                f'<span style="color:#f59e0b;font-size:10px;opacity:0.7;" '
+                f'title="{gap} prompts pre-consumed but never ran">⚠️-{gap}</span>'
+            )
 
         chip_html = '<span style="margin-left:4px;">' + ' '.join(chips) + '</span>' if chips else ''
 
         if is_pro:
-            # Pro users: just show count, no bar
             return format_html(
                 '<div style="display:flex;align-items:center;gap:6px;">'
                 '<span style="font-weight:700;font-size:14px;color:#a5b4fc;">{}</span>'
                 '{}'
                 '</div>',
-                total, format_html(chip_html),
+                confirmed, format_html(chip_html),
             )
 
-        # Free users: show progress bar with limit
         return format_html(
             '<div style="min-width:160px;">'
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">'
@@ -244,7 +257,7 @@ class DailyUsageAdmin(ModelAdmin):
             'transition:width 0.5s ease;"></div>'
             '</div>'
             '</div>',
-            total, limit, format_html(chip_html),
+            confirmed, limit, format_html(chip_html),
             pct, bar_color, glow,
         )
 
@@ -326,18 +339,24 @@ class DailyUsageAdmin(ModelAdmin):
 
     @admin.display(description="Completion %")
     def completion_rate(self, obj):
-        """
-        Logic: Downloads / Total Prompts = how many prompts resulted in a download.
-        This tells us the actual conversion rate of prompts → usable videos.
-        """
-        total = obj.total_prompts_used
-        downloads = obj.downloads_used
-        if total == 0:
+        """Downloads / Confirmed Prompts = real conversion rate."""
+        from apps.usage.models import UsageEvent
+        from django.db.models import Sum
+
+        confirmed = UsageEvent.objects.filter(
+            user=obj.user, event_type="consume_prompt",
+            created_at__date=obj.date,
+        ).aggregate(s=Sum("prompt_count"))["s"] or 0
+        downloads = UsageEvent.objects.filter(
+            user=obj.user, event_type="download_completed",
+            created_at__date=obj.date,
+        ).aggregate(s=Sum("prompt_count"))["s"] or 0
+
+        if confirmed == 0:
             return format_html('<span style="color:#475569;font-size:12px;">—</span>')
 
-        rate = round(downloads / total * 100)
+        rate = round(downloads / confirmed * 100)
 
-        # Color based on rate
         if rate >= 80:
             color, bg = "#34d399", "rgba(16,185,129,0.12)"
             label = "Excellent"
@@ -362,33 +381,35 @@ class DailyUsageAdmin(ModelAdmin):
             '</div>'
             '<div style="font-size:9px;color:#6b7280;margin-top:2px;">{}/{} saved</div>'
             '</div>',
-            bg, color, rate, label, downloads, total,
+            bg, color, rate, label, downloads, confirmed,
         )
 
-    @admin.display(description="Total Used")
+    @admin.display(description="Confirmed")
     def total_badge(self, obj):
-        total = obj.total_prompts_used
-        total_runs = obj.lite_runs_today + obj.flow_runs_today + obj.full_runs_today
+        """Shows confirmed (real) prompt count from events."""
+        from apps.usage.models import UsageEvent
+        from django.db.models import Sum
 
-        if total == 0 and total_runs == 0:
+        confirmed = UsageEvent.objects.filter(
+            user=obj.user, event_type="consume_prompt",
+            created_at__date=obj.date,
+        ).aggregate(s=Sum("prompt_count"))["s"] or 0
+
+        if confirmed == 0:
             return format_html('<span style="color:#475569;font-size:13px;">0</span>')
 
-        if total >= 100:
+        if confirmed >= 100:
             bg, label = "linear-gradient(135deg, #7f1d1d, #b91c1c)", "Heavy"
             border = "rgba(239, 68, 68, 0.4)"
-        elif total >= 50:
+        elif confirmed >= 50:
             bg, label = "linear-gradient(135deg, #78350f, #d97706)", "Medium"
             border = "rgba(245, 158, 11, 0.4)"
-        elif total >= 10:
+        elif confirmed >= 10:
             bg, label = "linear-gradient(135deg, #064e3b, #059669)", "Active"
             border = "rgba(16, 185, 129, 0.4)"
-        elif total > 0:
+        else:
             bg, label = "linear-gradient(135deg, #1e3a8a, #2563eb)", "Light"
             border = "rgba(59, 130, 246, 0.4)"
-        else:
-            # Ghost: has runs but no prompts (shouldn't happen after fix)
-            bg, label = "linear-gradient(135deg, #3f3f46, #52525b)", "Ghost"
-            border = "rgba(113, 113, 122, 0.4)"
 
         return format_html(
             '<div style="display:inline-flex;align-items:center;background:{};'
@@ -398,7 +419,7 @@ class DailyUsageAdmin(ModelAdmin):
             '<span style="font-size:10px;font-weight:600;color:rgba(255,255,255,0.8);'
             'text-transform:uppercase;letter-spacing:0.5px;">{}</span>'
             '</div>',
-            bg, border, total, label,
+            bg, border, confirmed, label,
         )
 
     @admin.display(description="Created", ordering="created_at")
