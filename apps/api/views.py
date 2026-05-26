@@ -287,6 +287,41 @@ class ConsumePromptView(APIView):
         prompt_type = request.data.get("prompt_type", "text")
         prompt_count = int(request.data.get("prompt_count", 1))
 
+        # ── Dedup guard: skip if queue_run already pre-consumed these prompts ──
+        # Old extension versions still call trackUsage() per-prompt AFTER the
+        # queue_run pre-consumed them server-side, causing double-counting.
+        # If there was a queue_run in the last 30 min that pre-consumed prompts,
+        # treat this call as a no-op (return success without incrementing).
+        from datetime import timedelta
+        from django.utils import timezone as tz
+        cutoff = tz.now() - timedelta(minutes=30)
+        recent_queue_run = UsageEvent.objects.filter(
+            user=request.user,
+            event_type__startswith="queue_run",
+            created_at__gte=cutoff,
+        ).exists()
+
+        if recent_queue_run:
+            # Already pre-consumed — return current usage without double-counting
+            from apps.plans.services import get_reward_credit_balance
+            from apps.usage.models import DailyUsage
+            from apps.plans.services import (
+                FREE_TEXT_DAILY_LIMIT, FREE_FULL_DAILY_LIMIT,
+                get_or_create_daily_usage,
+            )
+            today = tz.now().date()
+            usage = get_or_create_daily_usage(request.user, today)
+            profile = request.user.profile
+            return Response({
+                "allowed": True,
+                "source_used": "pre_consumed",
+                "prompt_type": prompt_type,
+                "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used) if not profile.is_pro else 999,
+                "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used) if not profile.is_pro else 999,
+                "reward_credit_balance": get_reward_credit_balance(request.user),
+                "message": "Already tracked via queue run.",
+            })
+
         results = []
         for _ in range(prompt_count):
             result = consume_prompt(request.user, source="extension", prompt_type=prompt_type)
