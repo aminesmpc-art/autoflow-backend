@@ -287,11 +287,11 @@ class ConsumePromptView(APIView):
         prompt_type = request.data.get("prompt_type", "text")
         prompt_count = int(request.data.get("prompt_count", 1))
 
-        # ── Dedup guard: skip if queue_run already pre-consumed these prompts ──
+        # ── Dedup guard: skip COUNTING if queue_run already pre-consumed ──
         # Old extension versions still call trackUsage() per-prompt AFTER the
         # queue_run pre-consumed them server-side, causing double-counting.
-        # If there was a queue_run in the last 30 min that pre-consumed prompts,
-        # treat this call as a no-op (return success without incrementing).
+        # We still LOG the event (so admin can see prompt-by-prompt) but
+        # don't increment the usage counters.
         from datetime import timedelta
         from django.utils import timezone as tz
         cutoff = tz.now() - timedelta(minutes=30)
@@ -302,9 +302,20 @@ class ConsumePromptView(APIView):
         ).exists()
 
         if recent_queue_run:
-            # Already pre-consumed — return current usage without double-counting
+            # Log the event for visibility (prompt-by-prompt in admin)
+            # but DON'T increment daily usage counters
+            UsageEvent.objects.create(
+                user=request.user,
+                event_type=UsageEvent.EventType.CONSUME_PROMPT,
+                prompt_count=1,
+                metadata={
+                    "source": "extension",
+                    "prompt_type": prompt_type,
+                    "source_used": "pre_consumed",
+                    "dedup": True,
+                },
+            )
             from apps.plans.services import get_reward_credit_balance
-            from apps.usage.models import DailyUsage
             from apps.plans.services import (
                 FREE_TEXT_DAILY_LIMIT, FREE_FULL_DAILY_LIMIT,
                 get_or_create_daily_usage,
