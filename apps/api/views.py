@@ -452,6 +452,31 @@ class ClaimReviewRewardView(APIView):
         serializer.is_valid(raise_exception=True)
         reviewer_name = serializer.validated_data["reviewer_name"]
 
+        # ── Eligibility gate: must have real usage in last 7 days ──
+        # 50+ confirmed text prompts OR 20+ confirmed full (image) prompts
+        from apps.usage.models import UsageEvent
+        from django.utils import timezone
+        from django.db.models import Sum, Q
+        from datetime import timedelta
+
+        seven_days_ago = timezone.now() - timedelta(days=7)
+        events = UsageEvent.objects.filter(
+            user=request.user,
+            event_type="consume_prompt",
+            created_at__gte=seven_days_ago,
+        )
+        total_confirmed = events.aggregate(s=Sum("prompt_count"))["s"] or 0
+        full_confirmed = events.filter(
+            metadata__prompt_type="full"
+        ).aggregate(s=Sum("prompt_count"))["s"] or 0
+
+        if total_confirmed < 50 and full_confirmed < 20:
+            return Response({
+                "status": "ineligible",
+                "message": f"You need at least 50 prompts or 20 image prompts in the last 7 days to claim a reward. "
+                           f"You have {total_confirmed} text and {full_confirmed} image prompts.",
+            }, status=status.HTTP_403_FORBIDDEN)
+
         claim = ReviewRewardClaim.objects.filter(user=request.user).first()
         
         if not claim:
