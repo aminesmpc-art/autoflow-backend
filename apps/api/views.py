@@ -392,7 +392,19 @@ class ConsumeQueueRunView(APIView):
         prompt_type = request.data.get("prompt_type", "text")
         if prompt_type not in ("text", "full"):
             prompt_type = "text"
-        result = consume_queue_run(request.user, mode=mode, prompt_count=prompt_count, prompt_type=prompt_type)
+        # Mixed queue support: per-type counts
+        text_count = request.data.get("text_count")
+        full_count = request.data.get("full_count")
+        if text_count is not None and full_count is not None:
+            text_count = int(text_count)
+            full_count = int(full_count)
+        else:
+            text_count = None
+            full_count = None
+        result = consume_queue_run(
+            request.user, mode=mode, prompt_count=prompt_count,
+            prompt_type=prompt_type, text_count=text_count, full_count=full_count,
+        )
         http_status = status.HTTP_200_OK if result["allowed"] else status.HTTP_403_FORBIDDEN
         return Response(result, status=http_status)
 

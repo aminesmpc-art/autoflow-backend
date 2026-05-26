@@ -483,11 +483,12 @@ def can_start_queue(user, mode: str) -> dict:
     }
 
 
-def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str = "text") -> dict:
+def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str = "text",
+                      text_count: int = None, full_count: int = None) -> dict:
     """Atomically record a queue run AND pre-consume prompts for the given mode.
 
-    This ensures prompt usage is tracked even if the extension never calls back
-    per-prompt (e.g. tab closed, network issue, extension crash).
+    Supports mixed queues: if text_count and full_count are provided, each type
+    is pre-consumed into the correct bucket. Otherwise falls back to single-type.
 
     Returns consumption result dict.
     """
@@ -555,9 +556,11 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str =
                 monthly.save()
 
         # ── Pre-consume prompts atomically ──
-        # This is the critical fix: track prompt usage at queue start time
-        # so it's recorded even if the extension never calls back per-prompt.
-        if prompt_type == "full":
+        # Mixed queue support: if per-type counts are provided, use them
+        if text_count is not None and full_count is not None:
+            usage.text_prompts_used += text_count
+            usage.full_prompts_used += full_count
+        elif prompt_type == "full":
             usage.full_prompts_used += prompt_count
         else:
             usage.text_prompts_used += prompt_count
@@ -565,13 +568,17 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str =
         usage.total_prompts_used += prompt_count
         usage.save()
 
-        # Log queue run event
+        # Log queue run event with per-type breakdown in metadata
         event_type = _MODE_EVENT_MAP.get(mode, UsageEvent.EventType.QUEUE_STARTED)
+        event_meta = {"mode": mode, "prompt_count": prompt_count, "prompt_type": prompt_type}
+        if text_count is not None and full_count is not None:
+            event_meta["text_count"] = text_count
+            event_meta["full_count"] = full_count
         UsageEvent.objects.create(
             user=user,
             event_type=event_type,
             prompt_count=prompt_count,
-            metadata={"mode": mode, "prompt_count": prompt_count, "prompt_type": prompt_type},
+            metadata=event_meta,
         )
 
         # Compute remaining
