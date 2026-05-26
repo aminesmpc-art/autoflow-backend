@@ -132,6 +132,12 @@ UNFOLD = {
                         "link": "/admin/rewards/rewardcreditledger/",
                     },
                     {
+                        "title": "Review Claims",
+                        "icon": "rate_review",
+                        "link": "/admin/rewards/reviewrewardclaim/",
+                        "badge": "apps.dashboard.badge_callback_pending_claims",
+                    },
+                    {
                         "title": "Payment Webhooks",
                         "icon": "webhook",
                         "link": "/admin/webhooks/webhookevent/",
