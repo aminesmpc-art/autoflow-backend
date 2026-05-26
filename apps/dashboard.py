@@ -234,6 +234,10 @@ def dashboard_callback(request, context):
     chart_full = []
     chart_total = []
     chart_downloads = []
+    chart_lite_runs = []
+    chart_flow_runs = []
+    chart_full_runs = []
+    chart_active_users = []
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
         chart_labels.append(d.strftime("%b %d"))
@@ -242,11 +246,120 @@ def dashboard_callback(request, context):
             f=Sum("full_prompts_used"),
             tot=Sum("total_prompts_used"),
             dl=Sum("downloads_used"),
+            lr=Sum("lite_runs_today"),
+            fr=Sum("flow_runs_today"),
+            fur=Sum("full_runs_today"),
         )
         chart_text.append(agg["t"] or 0)
         chart_full.append(agg["f"] or 0)
         chart_total.append(agg["tot"] or 0)
         chart_downloads.append(agg["dl"] or 0)
+        chart_lite_runs.append(agg["lr"] or 0)
+        chart_flow_runs.append(agg["fr"] or 0)
+        chart_full_runs.append(agg["fur"] or 0)
+        chart_active_users.append(
+            DailyUsage.objects.filter(date=d).exclude(
+                text_prompts_used=0, full_prompts_used=0,
+                lite_runs_today=0, flow_runs_today=0, full_runs_today=0,
+            ).count()
+        )
+
+    # ── Queue runs chart data ──
+    queue_chart = json.dumps({
+        "labels": chart_labels,
+        "datasets": [
+            {
+                "label": "Lite",
+                "data": chart_lite_runs,
+                "backgroundColor": "#facc15",
+                "borderRadius": 4,
+            },
+            {
+                "label": "Flow",
+                "data": chart_flow_runs,
+                "backgroundColor": "#34d399",
+                "borderRadius": 4,
+            },
+            {
+                "label": "Full",
+                "data": chart_full_runs,
+                "backgroundColor": "#818cf8",
+                "borderRadius": 4,
+            },
+        ],
+    })
+
+    # ── Active users chart data ──
+    active_chart = json.dumps({
+        "labels": chart_labels,
+        "datasets": [
+            {
+                "label": "Active Users",
+                "data": chart_active_users,
+                "borderColor": "#f59e0b",
+                "backgroundColor": "rgba(245, 158, 11, 0.1)",
+                "fill": True,
+                "tension": 0.4,
+                "type": "line",
+                "pointRadius": 5,
+                "pointBackgroundColor": "#f59e0b",
+            },
+        ],
+    })
+
+    # ── Upgrade candidates (free users hitting limits) ──
+    from apps.plans.services import FREE_TEXT_DAILY_LIMIT
+    threshold = int(FREE_TEXT_DAILY_LIMIT * 0.7)
+    upgrade_candidates_qs = (
+        DailyUsage.objects.filter(
+            date__gte=today - timedelta(days=3),
+            total_prompts_used__gte=threshold,
+        )
+        .exclude(user__profile__is_pro_active=True)
+        .values("user__email")
+        .annotate(
+            days_active=Count("date", distinct=True),
+            total_prompts=Sum("total_prompts_used"),
+            total_runs=Sum("lite_runs_today") + Sum("flow_runs_today") + Sum("full_runs_today"),
+        )
+        .order_by("-total_prompts")[:8]
+    )
+    upgrade_candidates = []
+    for uc in upgrade_candidates_qs:
+        usage_pct = min(100, round(uc["total_prompts"] / (FREE_TEXT_DAILY_LIMIT * uc["days_active"]) * 100))
+        upgrade_candidates.append({
+            "email": uc["user__email"],
+            "days_active": uc["days_active"],
+            "total_prompts": uc["total_prompts"],
+            "total_runs": uc["total_runs"] or 0,
+            "usage_pct": usage_pct,
+            "heat": "🔥🔥🔥" if usage_pct >= 90 else ("🔥🔥" if usage_pct >= 70 else "🔥"),
+        })
+
+    # ── Hourly activity heatmap (today) ──
+    hourly_events = []
+    for hour in range(24):
+        count = UsageEvent.objects.filter(
+            created_at__date=today,
+            created_at__hour=hour,
+        ).count()
+        hourly_events.append(count)
+    hourly_chart = json.dumps({
+        "labels": [f"{h:02d}" for h in range(24)],
+        "datasets": [{
+            "label": "Events",
+            "data": hourly_events,
+            "backgroundColor": [
+                f"rgba(16,185,129,{max(0.1, min(1.0, c / max(max(hourly_events), 1)))})"
+                for c in hourly_events
+            ],
+            "borderRadius": 3,
+        }],
+    })
+
+    # ── Avg prompts per queue run ──
+    total_queue_runs = today_lite_runs + today_flow_runs + today_full_runs
+    avg_prompts_per_run = round(today_total / total_queue_runs, 1) if total_queue_runs > 0 else 0
 
     # ── 7-day signup chart data ──
     signup_labels = []
@@ -257,6 +370,7 @@ def dashboard_callback(request, context):
         signup_data.append(
             CustomUser.objects.filter(created_at__date=d).count()
         )
+
 
     # ── Top 5 users today ──
     top_users_qs = (
@@ -447,6 +561,12 @@ def dashboard_callback(request, context):
             "full": today_full_runs,
             "total": today_lite_runs + today_flow_runs + today_full_runs,
         },
+        # New analytics
+        "queue_chart": queue_chart,
+        "active_chart": active_chart,
+        "hourly_chart": hourly_chart,
+        "upgrade_candidates": upgrade_candidates,
+        "avg_prompts_per_run": avg_prompts_per_run,
     })
 
     return context
