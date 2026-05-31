@@ -22,6 +22,10 @@ if __name__ == "__main__":
     # Ensure superuser exists
     run("python manage.py ensure_superuser")
 
+    # Auto-expire time-limited Pro (reward users, stale grants)
+    print("=== Expiring time-limited Pro access ===")
+    subprocess.run("python manage.py expire_pro", shell=True)
+
     # Start gunicorn
     port = os.environ.get("PORT", "8000")
     print(f"=== Starting gunicorn on port {port} ===")
