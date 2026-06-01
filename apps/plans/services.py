@@ -197,7 +197,7 @@ def get_entitlement_snapshot(user) -> dict:
         "flow_daily_limit": FREE_FLOW_DAILY_LIMIT,
         "flow_remaining_today": flow_remaining if not profile.is_pro else 999,
         "full_runs_today": usage.full_runs_today,
-        "full_daily_limit": FREE_FULL_DAILY_LIMIT_RUNS,
+        "full_runs_daily_limit": FREE_FULL_DAILY_LIMIT_RUNS,
         "full_remaining_today_runs": full_daily_remaining if not profile.is_pro else 999,
         # Legacy monthly fields (keep for backward compat)
         "full_runs_this_month": monthly.full_runs_used,
@@ -448,11 +448,10 @@ def can_start_queue(user, mode: str) -> dict:
         remaining = max(0, limit - used)
         period = "day"
     elif mode == "full":
-        monthly = get_or_create_monthly_usage(user, now.year, now.month)
-        used = monthly.full_runs_used
-        limit = FREE_FULL_MONTHLY_LIMIT
+        used = usage.full_runs_today
+        limit = FREE_FULL_DAILY_LIMIT_RUNS
         remaining = max(0, limit - used)
-        period = "month"
+        period = "day"
     else:
         return {
             "allowed": False,
@@ -555,8 +554,33 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str =
                 monthly.full_runs_used += 1
                 monthly.save()
 
-        # ── Pre-consume prompts atomically ──
-        # Mixed queue support: if per-type counts are provided, use them
+        # ── Enforce prompt limits server-side ──
+        if not profile.is_pro:
+            free_remaining = FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used
+            if prompt_count > free_remaining:
+                # Cap to whatever is remaining (don't let API callers bypass)
+                prompt_count = max(0, free_remaining)
+                if text_count is not None and full_count is not None:
+                    # Scale down proportionally
+                    total_requested = text_count + full_count
+                    if total_requested > 0 and prompt_count > 0:
+                        ratio = prompt_count / total_requested
+                        text_count = round(text_count * ratio)
+                        full_count = prompt_count - text_count
+                    else:
+                        text_count = 0
+                        full_count = 0
+                if prompt_count <= 0:
+                    return {
+                        "allowed": False,
+                        "used": usage.free_prompts_used,
+                        "limit": FREE_TEXT_DAILY_LIMIT,
+                        "remaining": 0,
+                        "period": "day",
+                        "message": "Daily prompt limit reached. Upgrade to Pro for unlimited.",
+                    }
+
+        # ── Pre-consume prompts (charge upfront) ──
         if text_count is not None and full_count is not None:
             usage.text_prompts_used += text_count
             usage.full_prompts_used += full_count
@@ -568,9 +592,43 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str =
         usage.total_prompts_used += prompt_count
         usage.save()
 
+        # ── Create "pending" per-prompt events ──
+        # These are placeholders. v3.0 extensions will UPDATE them to "done"/"failed"
+        # as each prompt finishes. Old extensions never update them, but the events
+        # still exist — so the dashboard always shows correct counts.
+        import uuid
+        batch_id = str(uuid.uuid4())[:8]  # Link events to this queue run
+
+        if text_count is not None and full_count is not None:
+            for i in range(text_count):
+                UsageEvent.objects.create(
+                    user=user,
+                    event_type=UsageEvent.EventType.CONSUME_PROMPT,
+                    prompt_count=1,
+                    metadata={"source": "queue_run", "source_used": "free" if not profile.is_pro else "pro",
+                              "prompt_type": "text", "status": "pending", "batch_id": batch_id, "seq": i},
+                )
+            for i in range(full_count):
+                UsageEvent.objects.create(
+                    user=user,
+                    event_type=UsageEvent.EventType.CONSUME_PROMPT,
+                    prompt_count=1,
+                    metadata={"source": "queue_run", "source_used": "free" if not profile.is_pro else "pro",
+                              "prompt_type": "full", "status": "pending", "batch_id": batch_id, "seq": text_count + i},
+                )
+        else:
+            for i in range(prompt_count):
+                UsageEvent.objects.create(
+                    user=user,
+                    event_type=UsageEvent.EventType.CONSUME_PROMPT,
+                    prompt_count=1,
+                    metadata={"source": "queue_run", "source_used": "free" if not profile.is_pro else "pro",
+                              "prompt_type": prompt_type, "status": "pending", "batch_id": batch_id, "seq": i},
+                )
+
         # Log queue run event with per-type breakdown in metadata
         event_type = _MODE_EVENT_MAP.get(mode, UsageEvent.EventType.QUEUE_STARTED)
-        event_meta = {"mode": mode, "prompt_count": prompt_count, "prompt_type": prompt_type}
+        event_meta = {"source": "extension", "mode": mode, "prompt_count": prompt_count, "prompt_type": prompt_type, "batch_id": batch_id}
         if text_count is not None and full_count is not None:
             event_meta["text_count"] = text_count
             event_meta["full_count"] = full_count
