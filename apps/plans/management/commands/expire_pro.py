@@ -38,11 +38,32 @@ class Command(BaseCommand):
             f"\n{'[DRY RUN] ' if dry_run else ''}Checking expired Pro users — {now.strftime('%Y-%m-%d %H:%M:%S UTC')}"
         ))
 
-        # ── 1. Reward users: pro_expires_at is in the past but still Pro ──
+        # ── 0. Safety: Paying users who also had a reward — clear stale expiry ──
+        # If a user has a Whop membership AND an expired pro_expires_at,
+        # they paid after the reward. Clear the expiry so they stay Pro.
+        hybrid_users = Profile.objects.filter(
+            is_pro_active=True,
+            whop_membership_id__isnull=False,
+            pro_expires_at__isnull=False,
+            pro_expires_at__lt=now,
+        )
+        hybrid_count = hybrid_users.count()
+        if hybrid_count:
+            self.stdout.write(self.style.WARNING(
+                f"\n🔒 Found {hybrid_count} paying user(s) with stale reward expiry — clearing:"
+            ))
+            for profile in hybrid_users:
+                self.stdout.write(f"  • {profile.user.email} (Whop: {profile.whop_membership_id})")
+                if not dry_run:
+                    profile.pro_expires_at = None
+                    profile.save(update_fields=["pro_expires_at", "updated_at"])
+
+        # ── 1. Reward-only users: pro_expires_at passed, no Whop membership ──
         expired_reward = Profile.objects.filter(
             is_pro_active=True,
             pro_expires_at__isnull=False,
             pro_expires_at__lt=now,
+            whop_membership_id__isnull=True,  # NEVER touch paying users
         )
 
         reward_count = expired_reward.count()
