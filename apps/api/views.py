@@ -281,69 +281,72 @@ class EntitlementsView(APIView):
 
 
 class ConsumePromptView(APIView):
+    """Track individual prompt completions (smart: updates pending events).
+
+    At queue start, consume_queue_run creates N "pending" events.
+    When the v3.0 extension reports each prompt's real outcome,
+    this endpoint finds the oldest pending event and updates it
+    to "done" or "failed". Old extensions never call this — their
+    pending events remain, still counted on the dashboard.
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         prompt_type = request.data.get("prompt_type", "text")
         prompt_count = int(request.data.get("prompt_count", 1))
+        prompt_status = request.data.get("status", "done")  # "done" or "failed"
 
-        # ── Dedup guard: skip COUNTING if queue_run already pre-consumed ──
-        # Old extension versions still call trackUsage() per-prompt AFTER the
-        # queue_run pre-consumed them server-side, causing double-counting.
-        # We still LOG the event (so admin can see prompt-by-prompt) but
-        # don't increment the usage counters.
-        from datetime import timedelta
         from django.utils import timezone as tz
-        cutoff = tz.now() - timedelta(minutes=30)
-        recent_queue_run = UsageEvent.objects.filter(
-            user=request.user,
-            event_type__startswith="queue_run",
-            created_at__gte=cutoff,
-        ).exists()
+        from apps.plans.services import (
+            FREE_TEXT_DAILY_LIMIT, FREE_FULL_DAILY_LIMIT,
+            get_or_create_daily_usage, get_reward_credit_balance,
+        )
 
-        if recent_queue_run:
-            # Log the event for visibility (prompt-by-prompt in admin)
-            # but DON'T increment daily usage counters
-            UsageEvent.objects.create(
+        today = tz.now().date()
+        usage = get_or_create_daily_usage(request.user, today)
+        profile = request.user.profile
+        updated = 0
+
+        for _ in range(prompt_count):
+            # Find the oldest "pending" event for this user today and update it
+            pending = UsageEvent.objects.filter(
                 user=request.user,
                 event_type=UsageEvent.EventType.CONSUME_PROMPT,
-                prompt_count=1,
-                metadata={
-                    "source": "extension",
-                    "prompt_type": prompt_type,
-                    "source_used": "pre_consumed",
-                    "dedup": True,
-                },
-            )
-            from apps.plans.services import get_reward_credit_balance
-            from apps.plans.services import (
-                FREE_TEXT_DAILY_LIMIT, FREE_FULL_DAILY_LIMIT,
-                get_or_create_daily_usage,
-            )
-            today = tz.now().date()
-            usage = get_or_create_daily_usage(request.user, today)
-            profile = request.user.profile
-            return Response({
-                "allowed": True,
-                "source_used": "pre_consumed",
-                "prompt_type": prompt_type,
-                "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used) if not profile.is_pro else 999,
-                "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used) if not profile.is_pro else 999,
-                "reward_credit_balance": get_reward_credit_balance(request.user),
-                "message": "Already tracked via queue run.",
-            })
+                created_at__date=today,
+                metadata__status="pending",
+                metadata__prompt_type=prompt_type,
+            ).order_by("created_at").first()
 
-        results = []
-        for _ in range(prompt_count):
-            result = consume_prompt(request.user, source="extension", prompt_type=prompt_type)
-            results.append(result)
-            if not result["allowed"]:
-                break
+            if pending:
+                # Update the pending event with the real status
+                pending.metadata["status"] = prompt_status
+                pending.metadata["source"] = "real_completion"
+                pending.save(update_fields=["metadata"])
+                updated += 1
+            else:
+                # No pending event found — create a new one (edge case / standalone)
+                UsageEvent.objects.create(
+                    user=request.user,
+                    event_type=UsageEvent.EventType.CONSUME_PROMPT,
+                    prompt_count=1,
+                    metadata={
+                        "source": "real_completion",
+                        "source_used": "free" if not profile.is_pro else "pro",
+                        "prompt_type": prompt_type,
+                        "status": prompt_status,
+                    },
+                )
 
-        # Return the last result (has current remaining counts)
-        final = results[-1]
-        http_status = status.HTTP_200_OK if final["allowed"] else status.HTTP_403_FORBIDDEN
-        return Response(final, status=http_status)
+        return Response({
+            "allowed": True,
+            "source_used": "tracked",
+            "prompt_type": prompt_type,
+            "status": prompt_status,
+            "updated_pending": updated,
+            "text_remaining_today": max(0, FREE_TEXT_DAILY_LIMIT - usage.free_prompts_used) if not profile.is_pro else 999,
+            "full_remaining_today": max(0, FREE_FULL_DAILY_LIMIT - usage.full_prompts_used) if not profile.is_pro else 999,
+            "reward_credit_balance": get_reward_credit_balance(request.user),
+        })
 
 
 class ConsumeDownloadView(APIView):

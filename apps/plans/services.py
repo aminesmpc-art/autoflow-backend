@@ -580,6 +580,32 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str =
                         "message": "Daily prompt limit reached. Upgrade to Pro for unlimited.",
                     }
 
+            # Enforce full-feature limit
+            if full_count is not None and full_count > 0:
+                full_remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
+                if full_count > full_remaining:
+                    return {
+                        "allowed": False,
+                        "used": usage.full_prompts_used,
+                        "limit": FREE_FULL_DAILY_LIMIT,
+                        "remaining": max(0, full_remaining),
+                        "period": "day",
+                        "message": "Daily full-feature limit reached. Upgrade to Pro for unlimited.",
+                    }
+            elif prompt_type == "full":
+                full_remaining = FREE_FULL_DAILY_LIMIT - usage.full_prompts_used
+                if prompt_count > full_remaining:
+                    prompt_count = max(0, full_remaining)
+                    if prompt_count <= 0:
+                        return {
+                            "allowed": False,
+                            "used": usage.full_prompts_used,
+                            "limit": FREE_FULL_DAILY_LIMIT,
+                            "remaining": 0,
+                            "period": "day",
+                            "message": "Daily full-feature limit reached. Upgrade to Pro for unlimited.",
+                        }
+
         # ── Pre-consume prompts (charge upfront) ──
         if text_count is not None and full_count is not None:
             usage.text_prompts_used += text_count
