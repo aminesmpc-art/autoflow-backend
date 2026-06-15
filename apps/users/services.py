@@ -26,6 +26,14 @@ def register_user(email: str, password: str) -> CustomUser:
         args=(user, token),
         daemon=True,
     ).start()
+
+    # Auto-link any pending Whop webhooks (user paid before registering)
+    try:
+        from apps.webhooks.services import link_pending_webhooks_for_user
+        link_pending_webhooks_for_user(user)
+    except Exception as exc:
+        logger.warning("Failed to auto-link webhooks for %s: %s", email, exc)
+
     return user
 
 
@@ -61,6 +69,13 @@ def verify_email(token_str: str) -> tuple[bool, str]:
     user = token.user
     user.is_active = True
     user.save(update_fields=["is_active"])
+
+    # Auto-link any pending Whop webhooks (user paid before registering)
+    try:
+        from apps.webhooks.services import link_pending_webhooks_for_user
+        link_pending_webhooks_for_user(user)
+    except Exception as exc:
+        logger.warning("Failed to auto-link webhooks on verify for %s: %s", user.email, exc)
 
     logger.info("Email verified for user %s", user.email)
     return True, "Email verified successfully. You can now log in."
