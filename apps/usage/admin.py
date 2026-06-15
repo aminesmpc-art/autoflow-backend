@@ -337,51 +337,91 @@ class DailyUsageAdmin(ModelAdmin):
             color, color, count,
         )
 
-    @admin.display(description="Completion %")
+    @admin.display(description="Queue Progress")
     def completion_rate(self, obj):
-        """Downloads / Confirmed Prompts = real conversion rate."""
+        """Multi-segment queue completion bar with done, pending, failed counts and started queues."""
         from apps.usage.models import UsageEvent
-        from django.db.models import Sum
+        from django.db.models import Sum, Q
 
-        confirmed = UsageEvent.objects.filter(
+        events = UsageEvent.objects.filter(
             user=obj.user, event_type="consume_prompt",
             created_at__date=obj.date,
-        ).aggregate(s=Sum("prompt_count"))["s"] or 0
+        )
+        counts = events.aggregate(
+            total=Sum("prompt_count"),
+            done=Sum("prompt_count", filter=Q(metadata__status="done")),
+            pending=Sum("prompt_count", filter=Q(metadata__status="pending")),
+            failed=Sum("prompt_count", filter=Q(metadata__status="failed")),
+        )
+        total = counts["total"] or 0
+        done = counts["done"] or 0
+        pending = counts["pending"] or 0
+        failed = counts["failed"] or 0
+
         downloads = UsageEvent.objects.filter(
             user=obj.user, event_type="download_completed",
             created_at__date=obj.date,
         ).aggregate(s=Sum("prompt_count"))["s"] or 0
 
-        if confirmed == 0:
+        if total == 0:
             return format_html('<span style="color:#475569;font-size:12px;">—</span>')
 
-        rate = round(downloads / confirmed * 100)
+        # Calculate segments
+        done_pct = round((done / total) * 100) if total > 0 else 0
+        pending_pct = round((pending / total) * 100) if total > 0 else 0
+        failed_pct = round((failed / total) * 100) if total > 0 else 0
 
-        if rate >= 80:
-            color, bg = "#34d399", "rgba(16,185,129,0.12)"
-            label = "Excellent"
-        elif rate >= 50:
-            color, bg = "#fbbf24", "rgba(234,179,8,0.12)"
-            label = "Good"
-        elif rate >= 20:
-            color, bg = "#f97316", "rgba(249,115,22,0.12)"
-            label = "Low"
-        elif rate > 0:
-            color, bg = "#f87171", "rgba(239,68,68,0.12)"
-            label = "Poor"
-        else:
-            color, bg = "#475569", "transparent"
-            label = "None"
+        # Calculate conversion/download rate
+        conversion_rate = round((downloads / total) * 100) if total > 0 else 0
+
+        # Queue run counts directly from model
+        lite_runs = obj.lite_runs_today
+        flow_runs = obj.flow_runs_today
+        full_runs = obj.full_runs_today
+        total_queues = lite_runs + flow_runs + full_runs
+
+        # Bar segments html
+        bar_html = ""
+        if done > 0:
+            bar_html += f'<div style="height:100%; width:{done_pct}%; background:linear-gradient(90deg, #10b981, #34d399); box-shadow:0 0 6px rgba(16,185,129,0.25);"></div>'
+        if pending > 0:
+            bar_html += f'<div style="height:100%; width:{pending_pct}%; background:linear-gradient(90deg, #f59e0b, #fbbf24); box-shadow:0 0 6px rgba(245,158,11,0.25);"></div>'
+        if failed > 0:
+            bar_html += f'<div style="height:100%; width:{failed_pct}%; background:linear-gradient(90deg, #ef4444, #f87171); box-shadow:0 0 6px rgba(239,68,68,0.25);"></div>'
+
+        # Badges list
+        badges = [
+            f'<span style="color:#34d399; font-size:11px; font-weight:700;">🟢 {done} done</span>',
+            f'<span style="color:#fbbf24; font-size:11px; font-weight:700;">🟡 {pending} pending</span>'
+        ]
+        if failed > 0:
+            badges.append(f'<span style="color:#f87171; font-size:11px; font-weight:700;">🔴 {failed} failed</span>')
+
+        badges_html = " ".join(badges)
+
+        # Queues list
+        queues_info = f'<span style="background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px; font-size:10px;">{total_queues} started ({lite_runs}L | {flow_runs}F | {full_runs}U)</span>'
 
         return format_html(
-            '<div style="text-align:center;">'
-            '<div style="background:{};color:{};padding:3px 8px;border-radius:6px;'
-            'font-size:12px;font-weight:700;display:inline-block;">'
-            '{}% <span style="font-size:9px;opacity:0.7;">{}</span>'
-            '</div>'
-            '<div style="font-size:9px;color:#6b7280;margin-top:2px;">{}/{} saved</div>'
+            '<div style="min-width:180px; display:flex; flex-direction:column; gap:4px;">'
+            '  <div style="height:6px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; display:flex; border:1px solid rgba(0,0,0,0.2);">'
+            '    {}'
+            '  </div>'
+            '  <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:2px;">'
+            '    {}'
+            '  </div>'
+            '  <div style="font-size:10px; color:#94a3b8; display:flex; align-items:center; gap:4px; margin-top:2px;">'
+            '    <span>Queues:</span> {}'
+            '  </div>'
+            '  <div style="font-size:10px; color:#6b7280; margin-top:1px;">'
+            '    Saved: <strong style="color:#38bdf8;">{}</strong> ({}% conversion)'
+            '  </div>'
             '</div>',
-            bg, color, rate, label, downloads, confirmed,
+            format_html(bar_html),
+            format_html(badges_html),
+            format_html(queues_info),
+            downloads,
+            conversion_rate,
         )
 
     @admin.display(description="Confirmed")
