@@ -191,7 +191,18 @@ def dashboard_callback(request, context):
         })
 
     # ── Revenue Estimate ──
-    whop_paying_users = Profile.objects.filter(is_pro_active=True, whop_membership_id__isnull=False).count()
+    # Count linked Whop subscribers (users with whop_membership_id)
+    whop_linked_users = Profile.objects.filter(
+        is_pro_active=True,
+        whop_membership_id__isnull=False,
+    ).exclude(whop_membership_id="").count()
+    # Count unlinked Whop payers (paid on Whop but no AutoFlow account yet)
+    # These are membership.activated events with no linked_user
+    unlinked_whop_payers = WebhookEvent.objects.filter(
+        event_type="membership.activated",
+        linked_user__isnull=True,
+    ).count()
+    whop_paying_users = whop_linked_users + unlinked_whop_payers
     pro_price_monthly = 10.00  # Whop subscription price
     mrr = round(whop_paying_users * pro_price_monthly, 2)
     arr = round(mrr * 12, 2)
