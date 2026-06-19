@@ -439,9 +439,9 @@ def can_start_queue(user, mode: str) -> dict:
 
     if mode == "lite":
         used = usage.lite_runs_today
-        limit = FREE_LITE_DAILY_LIMIT
-        remaining = max(0, limit - used)
-        period = "day"
+        limit = 999
+        remaining = 999
+        period = "unlimited"
     elif mode == "flow":
         used = usage.flow_runs_today
         limit = FREE_FLOW_DAILY_LIMIT
@@ -668,8 +668,8 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str =
         # Compute remaining
         if mode == "lite":
             used = usage.lite_runs_today
-            limit = FREE_LITE_DAILY_LIMIT
-            period = "day"
+            limit = 999
+            period = "unlimited"
         elif mode == "flow":
             used = usage.flow_runs_today
             limit = FREE_FLOW_DAILY_LIMIT
@@ -679,7 +679,7 @@ def consume_queue_run(user, mode: str, prompt_count: int = 1, prompt_type: str =
             limit = FREE_FULL_DAILY_LIMIT_RUNS
             period = "day"
 
-        remaining = max(0, limit - used) if not profile.is_pro else 999
+        remaining = 999 if (mode == "lite" or profile.is_pro) else max(0, limit - used)
 
         return {
             "allowed": True,

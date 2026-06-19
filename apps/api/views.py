@@ -40,14 +40,30 @@ logger = logging.getLogger(__name__)
 
 # Disposable/throwaway email domains commonly used by bots
 DISPOSABLE_EMAIL_DOMAINS = {
+    # Domains from screenshots and production logs
+    "aratrin.com", "afterdo.com", "lidugw.com", "dyleris.com",
+    "hotkev.com", "herojp.com", "brixozu.com", "ifcoat.com",
+    "matkind.com", "googxs.com", "bittnex.com", "minitts.net",
+    "hitzcart.com", "mtupu.com", "doreact.com", "preparmy.com",
+    "synsky.com", "fixscal.com", "web-library.net", "bwmyga.com",
+    "5nek.com", "wshu.net", "wnbaldwy.com", "denipl.com",
+    "dosbee.com", "bncinema.com", "fanchatu.com", "okcpress.com",
+    "marineso.com", "nriza.com", "noyavip.com", "getasail.com",
+    "bitmah.com", "acanok.com", "itquoted.com", "ozsaip.com",
+    # General disposable/throwaway domains
     "mydefipet.live", "bltiwd.com", "m3player.com", "guerrillamail.com",
     "mailinator.com", "tempmail.com", "throwaway.email", "yopmail.com",
     "guerrillamailblock.com", "grr.la", "sharklasers.com", "guerrillamail.info",
     "guerrillamail.net", "guerrillamail.org", "guerrillamail.de",
     "10minutemail.com", "trashmail.com", "tempinbox.com", "fakeinbox.com",
     "dispostable.com", "maildrop.cc", "mailnesia.com", "mailcatch.com",
-    "temp-mail.org", "emailondeck.com", "mohmal.com",
+    "temp-mail.org", "emailondeck.com", "mohmal.com", "getairmail.com",
+    "burnermail.io", "yopmail.fr", "yopmail.net", "cool.fr.nf", "jetable.org",
+    "mailnull.com", "mailinator2.com", "sogetthis.com", "mailin8r.com",
+    "mailinator.net", "spamherder.com", "binkmail.com", "bobmail.info",
+    "devnullmail.com"
 }
+
 
 
 class RegisterView(APIView):

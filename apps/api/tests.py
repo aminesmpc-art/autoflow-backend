@@ -17,7 +17,7 @@ from apps.plans.services import (
     FREE_DAILY_LIMIT,
     FREE_LITE_DAILY_LIMIT,
     FREE_FLOW_DAILY_LIMIT,
-    FREE_FULL_MONTHLY_LIMIT,
+    FREE_FULL_DAILY_LIMIT_RUNS,
     consume_prompt,
     consume_queue_run,
     can_start_queue,
@@ -40,30 +40,30 @@ from apps.users.services import create_verification_token, register_user, verify
 class RegistrationTests(TestCase):
     """Test user registration flow."""
 
-    @patch("apps.users.services.send_mail")
-    def test_register_creates_inactive_user(self, mock_mail):
+    @patch("apps.users.services.send_verification_email")
+    def test_register_creates_inactive_user(self, mock_send):
         user = register_user("test@example.com", "securepass123")
         self.assertFalse(user.is_active)
         self.assertEqual(user.email, "test@example.com")
 
-    @patch("apps.users.services.send_mail")
-    def test_register_creates_profile(self, mock_mail):
+    @patch("apps.users.services.send_verification_email")
+    def test_register_creates_profile(self, mock_send):
         user = register_user("test@example.com", "securepass123")
         self.assertTrue(hasattr(user, "profile"))
         self.assertEqual(user.profile.plan_type, PlanType.FREE)
 
-    @patch("apps.users.services.send_mail")
-    def test_register_creates_verification_token(self, mock_mail):
+    @patch("apps.users.services.send_verification_email")
+    def test_register_creates_verification_token(self, mock_send):
         user = register_user("test@example.com", "securepass123")
         tokens = EmailVerificationToken.objects.filter(user=user)
         self.assertEqual(tokens.count(), 1)
 
-    @patch("apps.users.services.send_mail")
-    def test_register_sends_verification_email(self, mock_mail):
-        register_user("test@example.com", "securepass123")
-        mock_mail.assert_called_once()
-        call_kwargs = mock_mail.call_args
-        self.assertIn("test@example.com", call_kwargs[1]["recipient_list"])
+    @patch("apps.users.services.send_verification_email")
+    def test_register_sends_verification_email(self, mock_send):
+        user = register_user("test@example.com", "securepass123")
+        mock_send.assert_called_once()
+        call_args = mock_send.call_args[0]
+        self.assertEqual(call_args[0].email, "test@example.com")
 
 
 class EmailVerificationTests(TestCase):
@@ -103,11 +103,11 @@ class EmailVerificationTests(TestCase):
         self.assertIn("invalid", message.lower())
 
     def test_resend_verification_creates_new_token(self):
-        create_verification_token(self.user)
+        token1 = create_verification_token(self.user)
         token2 = create_verification_token(self.user)
         tokens = EmailVerificationToken.objects.filter(user=self.user)
         self.assertEqual(tokens.count(), 2)
-        self.assertNotEqual(tokens.first().token, tokens.last().token)
+        self.assertNotEqual(token1.token, token2.token)
 
 
 class LoginTests(TestCase):
@@ -164,15 +164,15 @@ class EntitlementTests(TestCase):
         self.assertEqual(snapshot["free_remaining_today"], FREE_DAILY_LIMIT)
         self.assertTrue(snapshot["can_run_prompt"])
         # Queue run limits
-        self.assertEqual(snapshot["lite_remaining_today"], FREE_LITE_DAILY_LIMIT)
+        self.assertEqual(snapshot["lite_remaining_today"], 999)
         self.assertEqual(snapshot["flow_remaining_today"], FREE_FLOW_DAILY_LIMIT)
-        self.assertEqual(snapshot["full_remaining_this_month"], FREE_FULL_MONTHLY_LIMIT)
+        self.assertEqual(snapshot["full_remaining_this_month"], FREE_FULL_DAILY_LIMIT_RUNS)
 
     def test_free_user_can_consume_prompt(self):
         result = consume_prompt(self.user)
         self.assertTrue(result["allowed"])
         self.assertEqual(result["source_used"], "free")
-        self.assertEqual(result["free_remaining_today"], FREE_DAILY_LIMIT - 1)
+        self.assertEqual(result["text_remaining_today"], FREE_DAILY_LIMIT - 1)
 
     def test_free_user_exhausting_daily_limit(self):
         for i in range(FREE_DAILY_LIMIT):
@@ -220,14 +220,11 @@ class QueueRunLimitTests(TestCase):
         self.profile = Profile.objects.create(user=self.user, plan_type=PlanType.FREE)
 
     def test_free_user_lite_limit(self):
-        """Free user: 3 lite runs/day, then blocked."""
-        for i in range(FREE_LITE_DAILY_LIMIT):
+        """Free user: lite runs are unlimited."""
+        for i in range(10):
             result = consume_queue_run(self.user, "lite", 5)
             self.assertTrue(result["allowed"], f"Run {i+1} should be allowed")
-        # Next one should be blocked
-        result = consume_queue_run(self.user, "lite", 5)
-        self.assertFalse(result["allowed"])
-        self.assertEqual(result["remaining"], 0)
+            self.assertEqual(result["remaining"], 999)
 
     def test_free_user_flow_limit(self):
         """Free user: 6 flow runs/day, then blocked."""
@@ -238,8 +235,8 @@ class QueueRunLimitTests(TestCase):
         self.assertFalse(result["allowed"])
 
     def test_free_user_full_monthly_limit(self):
-        """Free user: 2 full runs/month, then blocked."""
-        for i in range(FREE_FULL_MONTHLY_LIMIT):
+        """Free user: 1 full runs/day, then blocked (daily limit runs)."""
+        for i in range(FREE_FULL_DAILY_LIMIT_RUNS):
             result = consume_queue_run(self.user, "full", 5)
             self.assertTrue(result["allowed"], f"Run {i+1} should be allowed")
         result = consume_queue_run(self.user, "full", 5)
@@ -267,7 +264,7 @@ class QueueRunLimitTests(TestCase):
         """can_start_queue is read-only — doesn't consume."""
         result = can_start_queue(self.user, "lite")
         self.assertTrue(result["allowed"])
-        self.assertEqual(result["remaining"], FREE_LITE_DAILY_LIMIT)
+        self.assertEqual(result["remaining"], 999)
 
     def test_invalid_mode_rejected(self):
         """Unknown mode returns allowed=False."""
@@ -381,6 +378,16 @@ class APIEndpointTests(TestCase):
             })
         self.assertEqual(response.status_code, 201)
 
+    def test_register_endpoint_disposable_email_rejected(self):
+        with patch("apps.users.services.send_mail"):
+            response = self.client.post("/api/auth/register", {
+                "email": "attacker@aratrin.com",
+                "password": "securepass123",
+            })
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Disposable emails are not allowed", response.data["detail"])
+
+
     def test_me_endpoint(self):
         self._login()
         response = self.client.get("/api/auth/me")
@@ -391,13 +398,40 @@ class APIEndpointTests(TestCase):
 class WebhookTests(TestCase):
     """Test webhook event storage and processing."""
 
+    @override_settings(WHOP_WEBHOOK_SECRET="whsec_dGVzdF9zZWNyZXRfdmFsdWU=")
     def test_whop_webhook_stores_event(self):
+        import time, hmac, hashlib, base64
+        from apps.users.models import CustomUser
+        from apps.plans.models import Profile
+
+        # Create user so the webhook matches and processes
+        user = CustomUser.objects.create_user("nobody@example.com", "pass123")
+        Profile.objects.create(user=user)
+
         client = APIClient()
-        response = client.post("/api/webhooks/whop", {
-            "type": "membership.went_valid",
-            "id": "evt_123",
-            "data": {"email": "nobody@example.com", "id": "mem_456"},
-        }, format="json")
+        timestamp = str(int(time.time()))
+        msg_id = "evt_123"
+        body = b'{"type": "membership.went_valid", "id": "evt_123", "data": {"email": "nobody@example.com", "id": "mem_456"}}'
+
+        # Compute valid signature
+        secret_bytes = base64.b64decode("dGVzdF9zZWNyZXRfdmFsdWU=")
+        signed_content = f"{msg_id}.{timestamp}.".encode("utf-8") + body
+        signature = base64.b64encode(
+            hmac.new(secret_bytes, signed_content, hashlib.sha256).digest()
+        ).decode("utf-8")
+
+        headers = {
+            "HTTP_WEBHOOK_ID": msg_id,
+            "HTTP_WEBHOOK_TIMESTAMP": timestamp,
+            "HTTP_WEBHOOK_SIGNATURE": f"v1,{signature}",
+        }
+
+        response = client.post(
+            "/api/webhooks/whop",
+            data=body,
+            content_type="application/json",
+            **headers
+        )
         self.assertEqual(response.status_code, 200)
 
         from apps.webhooks.models import WebhookEvent
