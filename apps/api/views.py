@@ -49,7 +49,7 @@ DISPOSABLE_EMAIL_DOMAINS = {
     "5nek.com", "wshu.net", "wnbaldwy.com", "denipl.com",
     "dosbee.com", "bncinema.com", "fanchatu.com", "okcpress.com",
     "marineso.com", "nriza.com", "noyavip.com", "getasail.com",
-    "bitmah.com", "acanok.com", "itquoted.com", "ozsaip.com",
+    "bitmah.com", "acanok.com", "itquoted.com", "ozsaip.com", "ocuser.com",
     # General disposable/throwaway domains
     "mydefipet.live", "bltiwd.com", "m3player.com", "guerrillamail.com",
     "mailinator.com", "tempmail.com", "throwaway.email", "yopmail.com",
