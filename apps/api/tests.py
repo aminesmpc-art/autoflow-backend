@@ -28,8 +28,8 @@ from apps.plans.services import (
 )
 from apps.rewards.models import RewardCreditLedger
 from apps.usage.models import DailyUsage
-from apps.users.models import CustomUser, EmailVerificationToken
-from apps.users.services import create_verification_token, register_user, verify_email
+from apps.users.models import CustomUser, EmailVerificationToken, PasswordResetToken
+from apps.users.services import create_verification_token, register_user, verify_email, request_password_reset, confirm_password_reset
 
 
 # ================================================================
@@ -499,5 +499,102 @@ class GoogleAuthTests(TestCase):
         response = self.client.post("/api/auth/google", {"id_token": "invalid-token-xyz"})
         self.assertEqual(response.status_code, 400)
         self.assertIn("Invalid Google token", response.data["message"])
+
+
+class PasswordResetTests(TestCase):
+    """Test password reset flows and verification code validity."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = CustomUser.objects.create_user("user@example.com", "oldpassword123")
+        Profile.objects.create(user=self.user)
+
+    @patch("apps.users.services.send_password_reset_email")
+    def test_request_reset_creates_token_and_sends_email(self, mock_send):
+        success, message = request_password_reset("user@example.com")
+        self.assertTrue(success)
+        self.assertIn("sent", message.lower())
+
+        tokens = PasswordResetToken.objects.filter(user=self.user)
+        self.assertEqual(tokens.count(), 1)
+        token = tokens.first()
+        self.assertEqual(len(token.code), 6)
+        self.assertTrue(token.code.isdigit())
+
+        # Wait for thread to start in test (or call mock verify)
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args[0][0], self.user)
+
+    def test_request_reset_non_existent_user_returns_generic_message(self):
+        success, message = request_password_reset("unknown@example.com")
+        self.assertTrue(success)
+        self.assertIn("sent", message.lower())
+        self.assertEqual(PasswordResetToken.objects.count(), 0)
+
+    def test_request_reset_google_user_fails(self):
+        google_user = CustomUser.objects.create_user("google@example.com")
+        google_user.set_unusable_password()
+        google_user.save()
+        Profile.objects.create(user=google_user)
+
+        success, message = request_password_reset("google@example.com")
+        self.assertFalse(success)
+        self.assertIn("Google Sign-in", message)
+
+    def test_confirm_reset_updates_password(self):
+        token = PasswordResetToken.objects.create(
+            user=self.user,
+            code="123456",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        success, message = confirm_password_reset("user@example.com", "123456", "newpassword999")
+        self.assertTrue(success)
+        self.assertIn("successfully", message.lower())
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("newpassword999"))
+        token.refresh_from_db()
+        self.assertIsNotNone(token.used_at)
+
+    def test_confirm_reset_invalid_code_fails(self):
+        PasswordResetToken.objects.create(
+            user=self.user,
+            code="123456",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        success, message = confirm_password_reset("user@example.com", "000000", "newpassword999")
+        self.assertFalse(success)
+        self.assertIn("invalid", message.lower())
+
+    def test_confirm_reset_expired_code_fails(self):
+        PasswordResetToken.objects.create(
+            user=self.user,
+            code="123456",
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        success, message = confirm_password_reset("user@example.com", "123456", "newpassword999")
+        self.assertFalse(success)
+        self.assertIn("expired", message.lower())
+
+    @patch("apps.users.services.send_password_reset_email")
+    def test_reset_request_api_endpoint(self, mock_send):
+        response = self.client.post("/api/auth/password/reset-request", {"email": "user@example.com"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("sent", response.data["message"].lower())
+
+    def test_reset_confirm_api_endpoint(self):
+        PasswordResetToken.objects.create(
+            user=self.user,
+            code="123456",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        response = self.client.post("/api/auth/password/reset-confirm", {
+            "email": "user@example.com",
+            "code": "123456",
+            "new_password": "newpassword999",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("successfully", response.data["message"].lower())
+
 
 

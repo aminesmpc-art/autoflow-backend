@@ -14,6 +14,9 @@ urlpatterns = [
     path("auth/verify-email", views.VerifyEmailView.as_view(), name="auth-verify-email"),
 
     path("auth/resend-verification", views.ResendVerificationView.as_view(), name="auth-resend-verification"),
+    path("auth/password/reset-request", views.RequestPasswordResetView.as_view(), name="auth-password-reset-request"),
+    path("auth/password/reset-confirm", views.ConfirmPasswordResetView.as_view(), name="auth-password-reset-confirm"),
+
 
     # Entitlements
     path("entitlements", views.EntitlementsView.as_view(), name="entitlements"),

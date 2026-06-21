@@ -91,3 +91,48 @@ class EmailVerificationToken(models.Model):
     def default_expiry() -> timezone.datetime:
         hours = getattr(settings, "VERIFICATION_TOKEN_EXPIRY_HOURS", 24)
         return timezone.now() + timedelta(hours=hours)
+
+
+class PasswordResetToken(models.Model):
+    """One-time-use code/token for password reset."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+    # A 6-digit numeric code for easy typing in the extension
+    code = models.CharField(max_length=6, db_index=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Reset code for {self.user.email} (expires {self.expires_at})"
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() > self.expires_at
+
+    @property
+    def is_used(self) -> bool:
+        return self.used_at is not None
+
+    @property
+    def is_valid(self) -> bool:
+        return not self.is_expired and not self.is_used
+
+    @staticmethod
+    def generate_code() -> str:
+        import random
+        return "".join(random.choices("0123456789", k=6))
+
+    @staticmethod
+    def default_expiry() -> timezone.datetime:
+        # Password reset code is valid for 1 hour
+        return timezone.now() + timedelta(hours=1)
+

@@ -18,7 +18,7 @@ from apps.plans.services import (
 )
 from apps.usage.models import UsageEvent
 from apps.users.models import CustomUser
-from apps.users.services import register_user, resend_verification, verify_email
+from apps.users.services import register_user, resend_verification, verify_email, request_password_reset, confirm_password_reset
 from apps.webhooks.models import WebhookEvent
 from apps.webhooks.services import process_whop_webhook
 
@@ -377,6 +377,60 @@ class ResendVerificationView(APIView):
 
         _, message = resend_verification(email)
         return Response({"message": message})
+
+
+class RequestPasswordResetView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.core.cache import cache
+        email = request.data.get("email", "").strip().lower()
+        if not email:
+            return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Rate limit: max 1 request per email per 60 seconds
+        cache_key = f"pwd_reset_rate:{email}"
+        if cache.get(cache_key):
+            return Response(
+                {"detail": "Please wait 60 seconds before requesting another password reset code."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        cache.set(cache_key, True, timeout=60)
+
+        success, message = request_password_reset(email)
+        if not success:
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": message}, status=status.HTTP_200_OK)
+
+
+class ConfirmPasswordResetView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email", "").strip().lower()
+        code = request.data.get("code", "").strip()
+        new_password = request.data.get("new_password", "").strip()
+
+        if not email or not code or not new_password:
+            return Response(
+                {"detail": "Email, verification code, and new password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Basic password validation
+        if len(new_password) < 8:
+            return Response(
+                {"detail": "Password must be at least 8 characters long."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        success, message = confirm_password_reset(email, code, new_password)
+        if not success:
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": message}, status=status.HTTP_200_OK)
+
 
 
 # ================================================================
