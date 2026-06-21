@@ -440,3 +440,64 @@ class WebhookTests(TestCase):
         self.assertEqual(event.event_type, "membership.went_valid")
         self.assertTrue(event.processed)
 
+
+class GoogleAuthTests(TestCase):
+    """Test Google authentication views and logic."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    @override_settings(GOOGLE_CLIENT_ID="mock-client-id-123")
+    def test_google_config_returns_client_id(self):
+        response = self.client.get("/api/auth/google/config")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["client_id"], "mock-client-id-123")
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @override_settings(GOOGLE_CLIENT_ID="mock-client-id-123")
+    def test_google_login_creates_new_user(self, mock_verify):
+        mock_verify.return_value = {
+            "email": "newgoogle@example.com",
+            "email_verified": True,
+        }
+        
+        response = self.client.post("/api/auth/google", {"id_token": "mock-token-xyz"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        
+        # Verify user creation
+        user = CustomUser.objects.get(email="newgoogle@example.com")
+        self.assertTrue(user.is_active)
+        self.assertTrue(hasattr(user, "profile"))
+        self.assertFalse(user.has_usable_password())
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    @override_settings(GOOGLE_CLIENT_ID="mock-client-id-123")
+    def test_google_login_activates_existing_inactive_user(self, mock_verify):
+        # Create an inactive user manually
+        user = CustomUser.objects.create_user("inactive@example.com", "pass123")
+        user.is_active = False
+        user.save()
+        Profile.objects.create(user=user)
+
+        mock_verify.return_value = {
+            "email": "inactive@example.com",
+            "email_verified": True,
+        }
+        
+        response = self.client.post("/api/auth/google", {"id_token": "mock-token-xyz"})
+        self.assertEqual(response.status_code, 200)
+        
+        # Verify status is active now
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    def test_google_login_invalid_token(self, mock_verify):
+        mock_verify.side_effect = ValueError("Invalid token")
+        
+        response = self.client.post("/api/auth/google", {"id_token": "invalid-token-xyz"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid Google token", response.data["message"])
+
+

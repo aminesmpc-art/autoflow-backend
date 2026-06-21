@@ -9,7 +9,10 @@ urlpatterns = [
     path("auth/login", views.LoginView.as_view(), name="auth-login"),
     path("auth/refresh", views.RefreshTokenView.as_view(), name="auth-refresh"),
     path("auth/me", views.MeView.as_view(), name="auth-me"),
+    path("auth/google", views.GoogleLoginView.as_view(), name="auth-google"),
+    path("auth/google/config", views.GoogleConfigView.as_view(), name="auth-google-config"),
     path("auth/verify-email", views.VerifyEmailView.as_view(), name="auth-verify-email"),
+
     path("auth/resend-verification", views.ResendVerificationView.as_view(), name="auth-resend-verification"),
 
     # Entitlements

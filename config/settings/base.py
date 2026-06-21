@@ -306,6 +306,10 @@ FREE_DAILY_PROMPT_LIMIT = config("FREE_DAILY_PROMPT_LIMIT", default=30, cast=int
 # ── Whop ──
 WHOP_WEBHOOK_SECRET = config("WHOP_WEBHOOK_SECRET", default="")
 
+# ── Google OAuth ──
+GOOGLE_CLIENT_ID = config("GOOGLE_CLIENT_ID", default="")
+
+
 # ── Logging ──
 LOGGING = {
     "version": 1,

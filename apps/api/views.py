@@ -185,7 +185,108 @@ class RefreshTokenView(APIView):
             )
 
 
+class GoogleLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.data.get("id_token")
+        if not token:
+            return Response(
+                {"message": "Google ID Token is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            from google.oauth2 import id_token as google_id_token
+            from google.auth.transport import requests as google_requests
+            from apps.plans.models import Profile
+            from django.conf import settings
+
+            # Verify the ID Token
+            client_id = getattr(settings, "GOOGLE_CLIENT_ID", "")
+            id_info = google_id_token.verify_oauth2_token(
+                token,
+                google_requests.Request(),
+                client_id,
+            )
+
+            # Get user email and details
+            email = id_info.get("email").lower()
+            if not email:
+                return Response(
+                    {"message": "Email not found in Google token."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Retrieve or create user
+            try:
+                user = CustomUser.objects.get(email=email)
+                created = False
+            except CustomUser.DoesNotExist:
+                user = CustomUser.objects.create_user(email=email, is_active=True)
+                created = True
+
+            # If user was created, finalize profile and webhooks
+            if created:
+                user.set_unusable_password()
+                user.save(update_fields=["password"])
+                Profile.objects.create(user=user)
+                
+                # Auto-link any pending Whop webhooks
+                try:
+                    from apps.webhooks.services import link_pending_webhooks_for_user
+                    link_pending_webhooks_for_user(user)
+                except Exception as exc:
+                    logger.warning("Failed to auto-link webhooks for Google user %s: %s", email, exc)
+            else:
+                # Self-healing: if the user was inactive, activate them since Google verified the email
+                if not user.is_active:
+                    user.is_active = True
+                    user.save(update_fields=["is_active"])
+                    
+                    # Also try to link pending webhooks just in case
+                    try:
+                        from apps.webhooks.services import link_pending_webhooks_for_user
+                        link_pending_webhooks_for_user(user)
+                    except Exception as exc:
+                        logger.warning("Failed to auto-link webhooks for Google user %s on activation: %s", email, exc)
+
+            # Mark user as last seen and issue SimpleJWT tokens
+            mark_last_seen(user)
+            refresh = RefreshToken.for_user(user)
+
+            return Response({
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+            }, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            logger.warning("Google token verification failed: %s", str(e))
+            return Response(
+                {"message": "Invalid Google token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            import traceback
+            logger.error("Google authentication failed: %s\n%s", str(e), traceback.format_exc())
+            return Response(
+                {"message": "Google authentication failed. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class GoogleConfigView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.conf import settings
+        return Response({
+            "client_id": getattr(settings, "GOOGLE_CLIENT_ID", "")
+        }, status=status.HTTP_200_OK)
+
+
 class MeView(APIView):
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
