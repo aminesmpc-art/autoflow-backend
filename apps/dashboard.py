@@ -12,10 +12,10 @@ from django.utils import timezone
 
 
 def _event_prompt_counts(date_filter):
-    """Count confirmed prompts from events, split by type.
+    """Count SUBMITTED prompts — only done + failed (actually sent to Flow).
 
-    Returns (total, text, full) based on actual consume_prompt events.
-    Each consume_prompt event = a prompt that actually ran through Flow.
+    Returns (total, text, full) based on events with status done or failed.
+    Pending events (pre-charged but never sent) are excluded.
     """
     from apps.usage.models import UsageEvent
     from django.db.models import Sum, Q, Count
@@ -23,6 +23,8 @@ def _event_prompt_counts(date_filter):
     qs = UsageEvent.objects.filter(
         event_type="consume_prompt",
         **date_filter,
+    ).filter(
+        Q(metadata__status="done") | Q(metadata__status="failed")
     )
     total = qs.aggregate(s=Sum("prompt_count"))["s"] or 0
 
@@ -67,6 +69,22 @@ def dashboard_callback(request, context):
     today_total, today_text, today_full = _event_prompt_counts(
         {"created_at__date": today}
     )
+
+    # ── Submitted vs Pending (prompts actually sent to Google Flow) ──
+    today_events_qs = UsageEvent.objects.filter(
+        event_type="consume_prompt", created_at__date=today,
+    )
+    today_done = today_events_qs.filter(
+        metadata__status="done"
+    ).aggregate(s=Sum("prompt_count"))["s"] or 0
+    today_failed = today_events_qs.filter(
+        metadata__status="failed"
+    ).aggregate(s=Sum("prompt_count"))["s"] or 0
+    today_pending = today_events_qs.filter(
+        metadata__status="pending"
+    ).aggregate(s=Sum("prompt_count"))["s"] or 0
+    today_submitted = today_done + today_failed  # actually sent to Flow
+    submission_rate = round((today_submitted / today_total * 100) if today_total > 0 else 0)
 
     # Downloads from events (real downloads, not pre-consumed)
     today_downloads = UsageEvent.objects.filter(
@@ -558,6 +576,15 @@ def dashboard_callback(request, context):
                 "accent": "red" if pending_webhooks else None,
             },
         ],
+        # Submitted prompts (sent to Google Flow)
+        "submitted": {
+            "sent": today_submitted,
+            "done": today_done,
+            "failed": today_failed,
+            "pending": today_pending,
+            "total_charged": today_total,
+            "rate": submission_rate,
+        },
         # Chart data
         "usage_chart": json.dumps({
             "labels": chart_labels,
