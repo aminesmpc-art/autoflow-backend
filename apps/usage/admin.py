@@ -176,26 +176,31 @@ class DailyUsageAdmin(ModelAdmin):
             obj.date.strftime("%b %d, %Y"),
         )
 
-    @admin.display(description="Prompts (Confirmed)")
+    @admin.display(description="Prompts (Sent to Flow)")
     def prompt_usage_bar(self, obj):
-        """Shows CONFIRMED prompt counts from events — what actually ran."""
+        """Shows only prompts ACTUALLY SENT to Google Flow (done + failed), not pre-charged."""
         from apps.plans.services import FREE_TEXT_DAILY_LIMIT
         from apps.usage.models import UsageEvent
         from django.db.models import Sum, Q
 
-        # Real counts from events (what actually happened)
+        # All events for this user today
         events = UsageEvent.objects.filter(
             user=obj.user, event_type="consume_prompt",
             created_at__date=obj.date,
         )
-        confirmed = events.aggregate(s=Sum("prompt_count"))["s"] or 0
-        confirmed_full = events.filter(
-            metadata__prompt_type="full"
+        total_charged = events.aggregate(s=Sum("prompt_count"))["s"] or 0
+        # Only count prompts that were ACTUALLY sent (done or failed — not pending)
+        sent = events.filter(
+            Q(metadata__status="done") | Q(metadata__status="failed")
         ).aggregate(s=Sum("prompt_count"))["s"] or 0
-        confirmed_text = confirmed - confirmed_full
-        pre_consumed = obj.total_prompts_used  # what was reserved at launch
+        sent_full = events.filter(
+            Q(metadata__status="done") | Q(metadata__status="failed"),
+            metadata__prompt_type="full",
+        ).aggregate(s=Sum("prompt_count"))["s"] or 0
+        sent_text = sent - sent_full
+        pending = total_charged - sent  # pre-charged but never sent
 
-        if confirmed == 0 and pre_consumed == 0:
+        if sent == 0 and total_charged == 0:
             return format_html('<span style="color:#475569;font-size:12px;">No prompts</span>')
 
         try:
@@ -204,7 +209,7 @@ class DailyUsageAdmin(ModelAdmin):
             is_pro = False
 
         limit = FREE_TEXT_DAILY_LIMIT
-        pct = min(100, round(confirmed / limit * 100)) if not is_pro and limit > 0 else 0
+        pct = min(100, round(sent / limit * 100)) if not is_pro and limit > 0 else 0
 
         # Color coding
         if is_pro:
@@ -222,17 +227,16 @@ class DailyUsageAdmin(ModelAdmin):
 
         # Type chips
         chips = []
-        if confirmed_text > 0:
-            chips.append(f'<span style="color:#60a5fa;font-size:11px;">📝{confirmed_text}</span>')
-        if confirmed_full > 0:
-            chips.append(f'<span style="color:#a78bfa;font-size:11px;">✨{confirmed_full}</span>')
+        if sent_text > 0:
+            chips.append(f'<span style="color:#60a5fa;font-size:11px;">📝{sent_text}</span>')
+        if sent_full > 0:
+            chips.append(f'<span style="color:#a78bfa;font-size:11px;">✨{sent_full}</span>')
 
-        # Show gap if pre-consumed differs from confirmed (user stopped early)
-        gap = pre_consumed - confirmed
-        if gap > 0:
+        # Show pending if any prompts were charged but never sent
+        if pending > 0:
             chips.append(
                 f'<span style="color:#f59e0b;font-size:10px;opacity:0.7;" '
-                f'title="{gap} prompts pre-consumed but never ran">⚠️-{gap}</span>'
+                f'title="{pending} prompts charged but never sent to Flow">⏳{pending} unsent</span>'
             )
 
         chip_html = '<span style="margin-left:4px;">' + ' '.join(chips) + '</span>' if chips else ''
@@ -243,7 +247,7 @@ class DailyUsageAdmin(ModelAdmin):
                 '<span style="font-weight:700;font-size:14px;color:#a5b4fc;">{}</span>'
                 '{}'
                 '</div>',
-                confirmed, format_html(chip_html),
+                sent, format_html(chip_html),
             )
 
         return format_html(
@@ -257,7 +261,7 @@ class DailyUsageAdmin(ModelAdmin):
             'transition:width 0.5s ease;"></div>'
             '</div>'
             '</div>',
-            confirmed, limit, format_html(chip_html),
+            sent, limit, format_html(chip_html),
             pct, bar_color, glow,
         )
 
