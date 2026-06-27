@@ -97,7 +97,7 @@ class PlanFilter(admin.SimpleListFilter):
 class DailyUsageAdmin(ModelAdmin):
     list_display = (
         "user_display", "plan_badge", "date_display",
-        "prompt_usage_bar", "queue_breakdown",
+        "prompt_usage_bar", "submitted_count", "queue_breakdown",
         "download_badge", "completion_rate",
         "total_badge", "created_display",
     )
@@ -259,6 +259,50 @@ class DailyUsageAdmin(ModelAdmin):
             '</div>',
             confirmed, limit, format_html(chip_html),
             pct, bar_color, glow,
+        )
+
+    @admin.display(description="Submitted")
+    def submitted_count(self, obj):
+        """Shows how many prompts were ACTUALLY submitted to Google Flow (done + failed)."""
+        from apps.usage.models import UsageEvent
+        from django.db.models import Sum, Q
+
+        events = UsageEvent.objects.filter(
+            user=obj.user, event_type="consume_prompt",
+            created_at__date=obj.date,
+        )
+        total_events = events.aggregate(s=Sum("prompt_count"))["s"] or 0
+        done = events.filter(metadata__status="done").aggregate(s=Sum("prompt_count"))["s"] or 0
+        failed = events.filter(metadata__status="failed").aggregate(s=Sum("prompt_count"))["s"] or 0
+        pending = events.filter(metadata__status="pending").aggregate(s=Sum("prompt_count"))["s"] or 0
+        submitted = done + failed  # actually went through to Google Flow
+
+        if total_events == 0:
+            return format_html('<span style="color:#475569;font-size:12px;">—</span>')
+
+        # Color: green if all submitted, amber if partial, red if none
+        if submitted == total_events:
+            color = "#34d399"
+            glow = "rgba(52,211,153,0.3)"
+            label = "All sent"
+        elif submitted > 0:
+            color = "#fbbf24"
+            glow = "rgba(251,191,36,0.3)"
+            label = f"{pending} unsent"
+        else:
+            color = "#f87171"
+            glow = "rgba(248,113,113,0.3)"
+            label = "None sent"
+
+        return format_html(
+            '<div style="text-align:center;">'
+            '<div style="font-weight:800;font-size:16px;color:{};text-shadow:0 0 8px {};">{}</div>'
+            '<div style="font-size:10px;color:#6b7280;margin-top:1px;">{} / {} charged</div>'
+            '<div style="font-size:9px;color:#525e6e;margin-top:1px;">{}</div>'
+            '</div>',
+            color, glow, submitted,
+            submitted, total_events,
+            label,
         )
 
     @admin.display(description="Queue Runs")
